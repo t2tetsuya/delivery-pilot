@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
-<title>Delivery Pilot v2.21 AI Web</title>
+<title>Delivery Pilot v2.22 AI Web</title>
 <link rel="manifest" href="manifest.json">
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f3f4f6}
@@ -25,7 +25,7 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 </style>
 </head>
 <body><main>
-<h1>Delivery Pilot <span class="muted">v2.21 AI</span></h1>
+<h1>Delivery Pilot <span class="muted">v2.22 AI</span></h1>
 <div class="muted">配達員向け スクショOCR・自動入力・AI稼働分析テスト版</div>
 <div id="updateStatus" class="muted" style="margin-top:6px">v2.19 / build 1791097656</div>
 
@@ -33,6 +33,12 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
   <div class="tabs" id="periodTabs">
     <button data-p="today" class="on">今日</button><button data-p="week">今週</button><button data-p="month">今月</button><button data-p="year">今年</button><button data-p="all">累計</button>
   </div>
+  <div class="actions" style="margin-top:10px">
+    <button class="btn" id="periodPrev" type="button">← 前へ</button>
+    <button class="btn" id="periodNow" type="button">今に戻る</button>
+    <button class="btn" id="periodNext" type="button">次へ →</button>
+  </div>
+  <div id="periodRangeLabel" class="muted" style="margin-top:8px;font-weight:700"></div>
   <div class="grid" style="margin-top:12px">
     <div class="metric"><span class="muted">売上合計</span><b id="mSales">¥0</b></div>
     <div class="metric"><span class="muted">インセンティブ</span><b id="mIncentive">¥0</b></div>
@@ -82,7 +88,7 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 <div id="msg" class="muted" style="margin-top:8px"></div>
 </form>
 
-<div class="card"><h2>日別売上</h2><canvas id="chart" width="700" height="180"></canvas></div>
+<div class="card"><h2>選択期間の売上推移</h2><canvas id="chart" width="700" height="180"></canvas></div>
 <div class="card"><h2>インセンティブ分析</h2><div id="incentiveAnalysis"></div></div>
 <div class="card"><h2>サービス別</h2><div id="services"></div></div>
 <div class="card"><h2>時間帯・エリア分析</h2><div id="analysis"></div></div>
@@ -120,33 +126,81 @@ for(const r of state.rows||[]){
 }
 delete state.goal;
 let period='today', editing=null;
+let periodAnchor=today();
 const $=id=>document.getElementById(id);
 $('date').value=today();
 function save(){localStorage.setItem(KEY,JSON.stringify(state))}
 save();
 function startOfWeek(d){let x=new Date(d+'T12:00:00'),day=(x.getDay()+6)%7;x.setDate(x.getDate()-day);return x.toISOString().slice(0,10)}
 function totalSales(r){return (+r.baseSales||0)+(+r.incentive||0)}
-function filtered(){
- let t=today(), ws=startOfWeek(t), ym=t.slice(0,7), y=t.slice(0,4);
- return state.rows.filter(r=>period==='all'||(period==='today'&&r.date===t)||(period==='week'&&r.date>=ws&&r.date<=t)||(period==='month'&&r.date.startsWith(ym))||(period==='year'&&r.date.startsWith(y)));
+function dateObj(s){ return new Date(s+'T12:00:00'); }
+function isoDate(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
+function startOfWeekDate(s){
+  const d=dateObj(s), day=(d.getDay()+6)%7;
+  d.setDate(d.getDate()-day);
+  return d;
+}
+function endOfWeekDate(s){
+  const d=startOfWeekDate(s); d.setDate(d.getDate()+6); return d;
+}
+function periodBounds(){
+  const a=dateObj(periodAnchor);
+  if(period==='today'){
+    return {start:periodAnchor,end:periodAnchor,label:periodAnchor.replaceAll('-','/')};
+  }
+  if(period==='week'){
+    const s=startOfWeekDate(periodAnchor), e=endOfWeekDate(periodAnchor);
+    return {start:isoDate(s),end:isoDate(e),label:`${s.getFullYear()}/${s.getMonth()+1}/${s.getDate()}〜${e.getFullYear()}/${e.getMonth()+1}/${e.getDate()}`};
+  }
+  if(period==='month'){
+    const s=new Date(a.getFullYear(),a.getMonth(),1), e=new Date(a.getFullYear(),a.getMonth()+1,0);
+    return {start:isoDate(s),end:isoDate(e),label:`${a.getFullYear()}年${a.getMonth()+1}月`};
+  }
+  if(period==='year'){
+    const s=new Date(a.getFullYear(),0,1), e=new Date(a.getFullYear(),11,31);
+    return {start:isoDate(s),end:isoDate(e),label:`${a.getFullYear()}年`};
+  }
+  return {start:'0000-01-01',end:'9999-12-31',label:'全期間'};
+}
+function filtered(){
+  if(period==='all') return state.rows.slice();
+  const b=periodBounds();
+  return state.rows.filter(r=>r.date>=b.start && r.date<=b.end);
+}
+function shiftPeriod(dir){
+  const d=dateObj(periodAnchor);
+  if(period==='today') d.setDate(d.getDate()+dir);
+  else if(period==='week') d.setDate(d.getDate()+7*dir);
+  else if(period==='month') d.setMonth(d.getMonth()+dir);
+  else if(period==='year') d.setFullYear(d.getFullYear()+dir);
+  else return;
+  periodAnchor=isoDate(d);
+  render();
+}
+
 function sum(rows){return rows.reduce((a,r)=>(a.base+=+r.baseSales||0,a.incentive+=+r.incentive||0,a.sales+=totalSales(r),a.expense+=+r.expense||0,a.minutes+=+r.minutes||0,a.trips+=+r.trips||0,a),{base:0,incentive:0,sales:0,expense:0,minutes:0,trips:0})}
 function periodDaysRemaining(){
- let d=new Date(), p=period;
- if(p==='today') return 1;
- if(p==='week'){let day=(d.getDay()+6)%7;return 7-day}
- if(p==='month'){let last=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();return last-d.getDate()+1}
- if(p==='year'){let end=new Date(d.getFullYear(),11,31),cur=new Date(d.getFullYear(),d.getMonth(),d.getDate());return Math.floor((end-cur)/86400000)+1}
- return 0;
+  const t=today(), b=periodBounds();
+  // 過去期間は目標残日数を表示しない
+  if(period==='all' || b.end<t) return 0;
+  const start = b.start>t ? b.start : t;
+  return Math.floor((dateObj(b.end)-dateObj(start))/86400000)+1;
 }
 const goalNames={today:'今日の売上目標',week:'今週の売上目標',month:'今月の売上目標',year:'今年の売上目標',all:'累計の売上目標'};
 function render(){
  let rows=filtered(),s=sum(rows),hr=s.minutes?s.sales/(s.minutes/60):0,baseHr=s.minutes?s.base/(s.minutes/60):0;
+ const bounds=periodBounds();
+ $('periodRangeLabel').textContent=`表示期間：${bounds.label}`;
+ $('periodPrev').disabled=period==='all';
+ $('periodNext').disabled=period==='all';
  $('mSales').textContent=yen(s.sales);$('mIncentive').textContent=yen(s.incentive);$('mExpense').textContent=yen(s.expense);$('mProfit').textContent=yen(s.sales-s.expense);$('mHourly').textContent=yen(hr);$('mTrips').textContent=s.trips+'件';
  $('baseBreakdown').textContent=`配達報酬 ${yen(s.base)} ／ インセンティブ除外時給 ${yen(baseHr)}`;
  $('goalLabel').textContent=goalNames[period];$('goal').value=state.goals[period]||0;
  let goal=+state.goals[period]||0, rem=Math.max(0,goal-s.sales);$('remaining').textContent=yen(rem);
- let days=periodDaysRemaining(), show=period!=='all'&&goal>0;$('goalExtra').hidden=!show;
+ let days=periodDaysRemaining(), show=period!=='all'&&goal>0&&days>0;
+ $('goalExtra').hidden=!show;
  if(show){$('daysRemaining').textContent=days+'日';$('perDayNeeded').textContent=yen(days?rem/days:0)}
  let byInc={};rows.forEach(r=>{let k=(+r.incentive||0)>0?(r.incentiveType||'その他'):'なし';if(k!=='なし')byInc[k]=(byInc[k]||0)+(+r.incentive||0)});
  $('incentiveAnalysis').innerHTML=Object.keys(byInc).length?Object.entries(byInc).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="item">${k}<b class="right">${yen(v)}</b></div>`).join(''):'<div class="muted">この期間のインセンティブはありません</div>';
@@ -157,53 +211,64 @@ function render(){
  $('history').innerHTML=state.rows.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(r=>`<div class="item"><b>${r.date} ${r.service}</b><span class="right">${yen(totalSales(r))}</span><div class="muted">${Math.floor(r.minutes/60)}時間${r.minutes%60}分・${r.trips}件・配達報酬 ${yen(r.baseSales)}・インセンティブ ${yen(r.incentive)}${(+r.incentive||0)>0?'（'+(r.incentiveType||'その他')+'）':''}・経費 ${yen(r.expense)}・${r.slot}${r.area?'・'+r.area:''}</div><div class="actions" style="margin-top:7px"><button class="btn edit" data-id="${r.id}" type="button">編集</button><button class="btn del" data-id="${r.id}" type="button">削除</button></div></div>`).join('');
  drawChart();document.querySelectorAll('.edit').forEach(b=>b.onclick=()=>editRow(b.dataset.id));document.querySelectorAll('.del').forEach(b=>b.onclick=()=>{if(confirm('この記録を削除しますか？')){state.rows=state.rows.filter(r=>r.id!==b.dataset.id);save();render()}});
 }
-function drawChart(){let c=$('chart'),ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);let d={};filtered().forEach(r=>d[r.date]=(d[r.date]||0)+totalSales(r));let arr=Object.entries(d).sort().slice(-14);if(!arr.length)return;let max=Math.max(...arr.map(x=>x[1]),1),pad=28,w=(c.width-pad*2)/arr.length;ctx.font='11px sans-serif';arr.forEach(([date,v],i)=>{let h=(v/max)*120,x=pad+i*w+5,y=145-h;ctx.fillStyle='#374151';ctx.fillRect(x,y,Math.max(8,w-10),h);ctx.fillStyle='#6b7280';ctx.fillText(date.slice(5),x,164)});}
-function editRow(id){let r=state.rows.find(x=>x.id===id);if(!r)return;editing=id;$('date').value=r.date;$('service').value=r.service;$('baseSales').value=r.baseSales;$('incentive').value=r.incentive||0;$('incentiveType').value=r.incentiveType||'なし';$('expense').value=r.expense;$('hours').value=Math.floor(r.minutes/60);$('minutes').value=r.minutes%60;$('trips').value=r.trips;$('slot').value=r.slot;$('area').value=r.area;$('cancelEdit').hidden=false;window.scrollTo({top:$('form').offsetTop-10,behavior:'smooth'})}
-function resetForm(){editing=null;$('form').reset();$('date').value=today();$('incentive').value=0;$('incentiveType').value='なし';$('expense').value=0;$('cancelEdit').hidden=true}
-$('cancelEdit').onclick=resetForm;
-$('form').onsubmit=e=>{
- e.preventDefault();
- if(screenshotBlocked){$('msg').textContent='⚠️ 選択日を特定できない週表示スクショのため保存できません。';return}
- let min=+$('hours').value*60 + +$('minutes').value;
- if(min<=0){$('msg').textContent='稼働時間を入力してください。';return}
- let inc=+$('incentive').value||0;
- let r={
-   id:editing||Date.now().toString(),
-   date:$('date').value,
-   service:$('service').value,
-   baseSales:+$('baseSales').value||0,
-   incentive:inc,
-   incentiveType:inc>0?$('incentiveType').value:'なし',
-   expense:+$('expense').value||0,
-   minutes:min,
-   trips:+$('trips').value||0,
-   slot:$('slot').value,
-   area:$('area').value.trim()
- };
+function drawChart(){
+  const c=$('chart'),ctx=c.getContext('2d');
+  ctx.clearRect(0,0,c.width,c.height);
+  const d={};
+  filtered().forEach(r=>d[r.date]=(d[r.date]||0)+totalSales(r));
+  const arr=Object.entries(d).sort();
 
- // 編集中の自分自身は除外して、同じ稼働の二重登録を防止。
- const duplicate=(state.rows||[]).find(x=>
-   x.id!==editing &&
-   x.date===r.date &&
-   x.service===r.service &&
-   (+x.baseSales||0)===r.baseSales &&
-   (+x.incentive||0)===r.incentive &&
-   (+x.minutes||0)===r.minutes &&
-   (+x.trips||0)===r.trips
- );
- if(duplicate){
-   $('msg').textContent=`⚠️ この稼働はすでに登録済みです（${r.date}・${r.service}・${yen(r.baseSales+r.incentive)}・${Math.floor(r.minutes/60)}時間${r.minutes%60}分・${r.trips}件）。二重登録はしませんでした。`;
-   $('msg').style.color='#b45309';
-   window.scrollTo({top:$('form').offsetTop-10,behavior:'smooth'});
-   return;
- }
- $('msg').style.color='';
- if(editing){state.rows=state.rows.map(x=>x.id===editing?r:x)}
- else state.rows.push(r);
- save();resetForm();$('msg').textContent='保存しました。';render();$('aiOutput').textContent=localAI();
+  ctx.font='12px sans-serif';
+  if(!arr.length){
+    ctx.fillStyle='#6b7280';
+    ctx.fillText('この期間の登録データはありません',28,90);
+    return;
+  }
+
+  // 月/年/累計は件数が多くても全期間を反映。ラベルだけ間引く。
+  const max=Math.max(...arr.map(x=>x[1]),1);
+  const padL=42,padR=14,padT=12,padB=30;
+  const plotW=c.width-padL-padR, plotH=c.height-padT-padB;
+  const step=arr.length>1?plotW/(arr.length-1):0;
+
+  ctx.strokeStyle='#d1d5db';
+  ctx.beginPath(); ctx.moveTo(padL,padT+plotH); ctx.lineTo(c.width-padR,padT+plotH); ctx.stroke();
+
+  ctx.strokeStyle='#374151';
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  arr.forEach(([date,v],i)=>{
+    const x=arr.length===1?padL+plotW/2:padL+i*step;
+    const y=padT+plotH-(v/max)*plotH;
+    if(i===0)ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+
+  ctx.fillStyle='#111827';
+  arr.forEach(([date,v],i)=>{
+    const x=arr.length===1?padL+plotW/2:padL+i*step;
+    const y=padT+plotH-(v/max)*plotH;
+    ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill();
+  });
+
+  ctx.fillStyle='#6b7280';
+  const labelEvery=Math.max(1,Math.ceil(arr.length/7));
+  arr.forEach(([date],i)=>{
+    if(i%labelEvery!==0 && i!==arr.length-1)return;
+    const x=arr.length===1?padL+plotW/2:padL+i*step;
+    ctx.fillText(date.slice(5).replace('-','/'),Math.max(2,x-14),c.height-8);
+  });
 };
 $('goal').onchange=()=>{state.goals[period]=Math.max(0,+$('goal').value||0);save();render()};
-document.querySelectorAll('#periodTabs button').forEach(b=>b.onclick=()=>{period=b.dataset.p;document.querySelectorAll('#periodTabs button').forEach(x=>x.classList.toggle('on',x===b));render()});
+document.querySelectorAll('#periodTabs button').forEach(b=>b.onclick=()=>{
+  period=b.dataset.p;
+  periodAnchor=today();
+  document.querySelectorAll('#periodTabs button').forEach(x=>x.classList.toggle('on',x===b));
+  render();
+});
+$('periodPrev').onclick=()=>shiftPeriod(-1);
+$('periodNext').onclick=()=>shiftPeriod(1);
+$('periodNow').onclick=()=>{periodAnchor=today();render();};
 $('shotBtn').onclick=()=>{
   const input=$('shot');
   input.value=''; // 同じスクショを選び直してもchangeが発火するようにする
@@ -824,8 +889,8 @@ $('refreshAppBtn').onclick=async()=>{
     }
   }catch(e){}
   const u=new URL(location.href);
-  u.searchParams.set('v','2.21');
-  u.searchParams.set('b','1791098957');
+  u.searchParams.set('v','2.22');
+  u.searchParams.set('b','1791099463');
   location.replace(u.toString());
 };
 
@@ -833,13 +898,13 @@ $('exportBtn').onclick=()=>{let blob=new Blob([JSON.stringify(state,null,2)],{ty
 $('importFile').onchange=async e=>{try{let o=JSON.parse(await e.target.files[0].text());if(!o||!Array.isArray(o.rows))throw 0;state=o;if(!state.goals)state.goals={today:+state.goal||15000,week:90000,month:450000,year:5400000,all:0};for(const r of state.rows){if(r.baseSales==null){r.baseSales=+r.sales||0;r.incentive=+r.incentive||0;r.incentiveType=r.incentiveType||'なし'}}delete state.goal;save();render();alert('バックアップを読み込みました')}catch{alert('バックアップファイルを読み込めませんでした')}};
 render();$('aiOutput').textContent=localAI();
 
-const APP_VERSION='v2.21';
-const APP_BUILD='1791098957';
+const APP_VERSION='v2.22';
+const APP_BUILD='1791099463';
 
 async function forceFreshServiceWorker(){
   if(!('serviceWorker' in navigator)) return;
   try{
-    const reg=await navigator.serviceWorker.register('./sw.js?v=2.21&b=1791098957',{updateViaCache:'none'});
+    const reg=await navigator.serviceWorker.register('./sw.js?v=2.22&b=1791099463',{updateViaCache:'none'});
     await reg.update();
     if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
     navigator.serviceWorker.addEventListener('controllerchange',()=>{
