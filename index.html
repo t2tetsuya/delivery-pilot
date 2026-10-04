@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
-<title>Delivery Pilot v2.7 AI Web</title>
+<title>Delivery Pilot v2.8 AI Web</title>
 <link rel="manifest" href="manifest.json">
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f3f4f6}
@@ -25,7 +25,7 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 </style>
 </head>
 <body><main>
-<h1>Delivery Pilot <span class="muted">v2.7 AI</span></h1>
+<h1>Delivery Pilot <span class="muted">v2.8 AI</span></h1>
 <div class="muted">配達員向け スクショOCR・自動入力・AI稼働分析テスト版</div>
 
 <div class="card">
@@ -58,7 +58,8 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 <div class="card">
 <h2>Uberスクショ → 自動登録</h2>
 <div class="muted">Uber Driver等の売上スクショを選ぶだけでOCRを実行し、売上・件数・オンライン時間・インセンティブを自動抽出して入力欄へ反映します。保存前に数字を確認できます。</div>
-<label class="btn primary" style="display:block;text-align:center;margin-top:12px">スクショを選択<input id="shot" type="file" accept="image/*" hidden></label>
+<button class="btn primary" id="shotBtn" type="button" style="display:block;width:100%;text-align:center;margin-top:12px">スクショを選択</button>
+<input id="shot" type="file" accept="image/*,.png,.jpg,.jpeg,.webp" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" aria-label="スクリーンショットを選択">
 <img id="preview" hidden alt="選択したスクリーンショット">
 <div id="ocrStatus" class="muted" style="margin-top:8px"></div>
 <textarea id="ocrText" placeholder="OCR結果 / またはスクショ内の文字を貼り付け" style="width:100%;min-height:110px;margin-top:10px;padding:10px;border:1px solid #d1d5db;border-radius:10px"></textarea>
@@ -191,9 +192,14 @@ $('form').onsubmit=e=>{
  if(editing){state.rows=state.rows.map(x=>x.id===editing?r:x)}
  else state.rows.push(r);
  save();resetForm();$('msg').textContent='保存しました。';render();$('aiOutput').textContent=localAI();
-};if(editing){state.rows=state.rows.map(x=>x.id===editing?r:x)}else state.rows.push(r);save();resetForm();$('msg').textContent='保存しました。';render();$('aiOutput').textContent=localAI()};
+};
 $('goal').onchange=()=>{state.goals[period]=Math.max(0,+$('goal').value||0);save();render()};
 document.querySelectorAll('#periodTabs button').forEach(b=>b.onclick=()=>{period=b.dataset.p;document.querySelectorAll('#periodTabs button').forEach(x=>x.classList.toggle('on',x===b));render()});
+$('shotBtn').onclick=()=>{
+  const input=$('shot');
+  input.value=''; // 同じスクショを選び直してもchangeが発火するようにする
+  input.click();
+};
 $('shot').onchange=async e=>{
  let f=e.target.files[0];if(!f)return;
  let u=URL.createObjectURL(f);$('preview').src=u;$('preview').hidden=false;
@@ -359,13 +365,10 @@ $('aiAnalyze').onclick=()=>{$('aiOutput').textContent=localAI()};
 $('exportBtn').onclick=()=>{let blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='delivery-pilot-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
 $('importFile').onchange=async e=>{try{let o=JSON.parse(await e.target.files[0].text());if(!o||!Array.isArray(o.rows))throw 0;state=o;if(!state.goals)state.goals={today:+state.goal||15000,week:90000,month:450000,year:5400000,all:0};for(const r of state.rows){if(r.baseSales==null){r.baseSales=+r.sales||0;r.incentive=+r.incentive||0;r.incentiveType=r.incentiveType||'なし'}}delete state.goal;save();render();alert('バックアップを読み込みました')}catch{alert('バックアップファイルを読み込めませんでした')}};
 render();$('aiOutput').textContent=localAI();
-if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js?v=23').catch(()=>{});
-</script>
-<script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      const reg = await navigator.serviceWorker.register('./sw.js?v=2.7', {updateViaCache:'none'});
+      const reg = await navigator.serviceWorker.register('./sw.js?v=2.8', {updateViaCache:'none'});
       await reg.update();
     } catch(e) { console.log('SW update', e); }
   });
