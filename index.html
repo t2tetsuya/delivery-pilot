@@ -25,7 +25,7 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 </style>
 </head>
 <body><main>
-<h1>Delivery Pilot <span class="muted">v2.13 AI</span></h1>
+<h1>Delivery Pilot <span class="muted">v2.14 AI</span></h1>
 <div class="muted">配達員向け スクショOCR・自動入力・AI稼働分析テスト版</div>
 
 <div class="card">
@@ -58,9 +58,9 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 <div class="card">
 <h2>Uberスクショ → 自動登録</h2>
 <div class="muted">Uber Driver等の売上スクショを選ぶだけでOCRを実行し、売上・件数・オンライン時間・インセンティブを自動抽出して入力欄へ反映します。保存前に数字を確認できます。</div>
-<button class="btn primary" id="shotBtn" type="button" style="display:block;width:100%;text-align:center;margin-top:12px">スクショをまとめて選択</button>
+<button class="btn primary" id="shotBtn" type="button" style="display:block;width:100%;text-align:center;margin-top:12px">スクショ選択</button>
 <input id="shot" type="file" accept="image/*,.png,.jpg,.jpeg,.webp" multiple style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" aria-label="スクリーンショットを複数選択">
-<div id="batchInfo" class="muted" style="margin-top:10px;padding:10px;border:1px solid #d1d5db;border-radius:10px">1日分でも1か月分でも、複数のスクショをまとめて選択できます。</div>
+<div id="batchInfo" class="muted" style="margin-top:10px;padding:10px;border:1px solid #d1d5db;border-radius:10px">1日分でも1か月分でも、複数のスクショ選択できます。</div>
 <div id="batchPreview" style="margin-top:10px"></div>
 <div id="shotPeriodNotice" class="muted" style="display:none;margin-top:10px;padding:10px;border:1px solid #d1d5db;border-radius:10px"></div>
 <div id="ocrStatus" class="muted" style="margin-top:8px"></div>
@@ -354,7 +354,7 @@ function renderBatchResults(rows){
       </div>
     </div>`).join('')}
     <div class="actions" style="margin-top:10px">
-      <button class="btn primary" id="batchSaveBtn" type="button">確認できたデータをまとめて登録</button>
+      <button class="btn primary" id="batchSaveBtn" type="button">確認できたデータ登録</button>
       <button class="btn" id="batchClearBtn" type="button">取り込みをクリア</button>
     </div>
   </div>`;
@@ -577,7 +577,7 @@ render();$('aiOutput').textContent=localAI();
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      const reg = await navigator.serviceWorker.register('./sw.js?v=2.13', {updateViaCache:'none'});
+      const reg = await navigator.serviceWorker.register('./sw.js?v=2.14', {updateViaCache:'none'});
       await reg.update();
     } catch(e) { console.log('SW update', e); }
   });
