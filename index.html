@@ -25,7 +25,7 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 </style>
 </head>
 <body><main>
-<h1>Delivery Pilot <span class="muted">v2.16 AI</span></h1>
+<h1>Delivery Pilot <span class="muted">v2.18 AI</span></h1>
 <div class="muted">配達員向け スクショOCR・自動入力・AI稼働分析テスト版</div>
 
 <div class="card">
@@ -329,9 +329,11 @@ async function ocrOneFile(f, index, total){
       }
     }});
     let fullText=(full.data&&full.data.text)||'';
+
     const img=await new Promise((resolve,reject)=>{
       const im=new Image(); im.onload=()=>resolve(im); im.onerror=reject; im.src=u;
     });
+
     const crop=document.createElement('canvas');
     const sy=Math.floor(img.naturalHeight*0.36);
     const sh=Math.floor(img.naturalHeight*0.34);
@@ -349,25 +351,18 @@ async function ocrOneFile(f, index, total){
     const stat=await Tesseract.recognize(crop,'jpn+eng');
     let statText=(stat.data&&stat.data.text)||'';
     const txt=fullText+'\n\n--- 統計欄（拡大OCR） ---\n'+statText;
+
     const p=detectScreenshotPeriod(txt);
     const selectedIndex=p.type==='week'?detectSelectedUberDayIndex(img):null;
     const selectedDate=p.type==='week'?selectedDateFromWeek(p,selectedIndex):'';
-    let x=extractUberFields(txt);
-    let retryUsed=false, retryText='';
-    if(looksSuspiciousDaily(x)){
-      try{
-        const rr=await retryMoneyOcr(img,index,total);
-        retryText=rr.text||'';
-        const better=chooseBetterFields(x,rr.fields);
-        if(JSON.stringify(better)!==JSON.stringify(x)) retryUsed=true;
-        x=better;
-      }catch(e){}
-    }
+    const x=extractUberFields(txt);
+
     const lm=f.lastModified?new Date(f.lastModified):null;
     const fileDate=lm&&!isNaN(lm)?`${lm.getFullYear()}-${String(lm.getMonth()+1).padStart(2,'0')}-${String(lm.getDate()).padStart(2,'0')}`:'';
-    return {file:f.name,text:txt+(retryText?'\n\n--- 売上再OCR ---\n'+retryText:''),period:p,selectedDate,fileDate,fields:x,ok:true,retryUsed};
+
+    return {file:f.name,text:txt,period:p,selectedDate,fileDate,fields:x,ok:true};
   }catch(err){
-    return {file:f.name,text:'',period:{type:'unknown'},selectedDate:'',fields:{sales:null,inc:null,trips:null,hm:null},ok:false,error:String(err&&err.message?err.message:err)};
+    return {file:f.name,text:'',period:{type:'unknown'},selectedDate:'',fileDate:'',fields:{sales:null,inc:null,trips:null,hm:null},ok:false,error:String(err&&err.message?err.message:err)};
   }finally{
     URL.revokeObjectURL(u);
   }
@@ -377,37 +372,17 @@ function makeBatchRow(r, idx){
   const x=r.fields||{};
   const ocrDate=extractDateFromOcr(r.text)||'';
   const date=r.selectedDate||ocrDate||r.fileDate||'';
-  const dateSource=r.selectedDate?'週表示の青い選択日':(ocrDate?'画面OCR':(r.fileDate?'写真の日付候補':''));
-  const sales=x.sales;
-  const inc=x.inc;
-  const trips=x.trips;
-  const mins=x.hm?(x.hm.h*60+x.hm.m):0;
-  const hours=mins/60;
-  const aggregateLikely=(hours>18 || (+trips||0)>70);
-  const numericOk=r.ok && sales!=null && trips!=null && mins>0 && !aggregateLikely;
-
-  let baseReason='';
-  if(!r.ok) baseReason='OCRエラー';
-  else if(aggregateLikely) baseReason='週合計など、1日分ではない可能性があります';
-  else if(sales==null) baseReason='売上を特定できません';
-  else if(trips==null) baseReason='件数を特定できません';
-  else if(mins<=0) baseReason='オンライン時間を特定できません';
-  else if(!date) baseReason='日付だけ確認してください';
-
-  let row={
-    index:idx,file:r.file,date,dateSource,sales,inc:inc||0,trips,minutes:mins,
-    period:r.period,selectedDate:r.selectedDate,status:false,numericOk,reason:baseReason,
-    text:r.text,retryUsed:!!r.retryUsed,aggregateLikely
+  const sales=x.sales==null?'':x.sales;
+  const inc=x.inc==null?0:x.inc;
+  const trips=x.trips==null?'':x.trips;
+  const mins=x.hm?(x.hm.h*60+x.hm.m):'';
+  return {
+    index:idx,file:r.file,date,
+    sales,inc,trips,minutes:mins,
+    checked:true,
+    text:r.text,
+    warning:''
   };
-
-  if(numericOk){
-    const check=validateDailyCandidate(row);
-    row.dailyValid=check.ok;
-    if(!check.ok) row.reason=check.reason;
-  }else row.dailyValid=false;
-
-  row.status=!!(row.numericOk && row.dailyValid && row.date);
-  return row;
 }
 
 function extractDateFromOcr(text){
@@ -438,53 +413,104 @@ function validateDailyCandidate(r){
   return {ok:true,reason:''};
 }
 
+
+function validateEditableRow(r){
+  const date=String(r.date||'');
+  const sales=+r.sales||0;
+  const inc=+r.inc||0;
+  const trips=+r.trips||0;
+  const mins=+r.minutes||0;
+  if(!date) return '日付を入力してください';
+  if(sales<=0) return '売上を確認してください';
+  if(trips<=0) return '件数を確認してください';
+  if(mins<=0) return '稼働時間を確認してください';
+  if(mins>18*60 || trips>70) return '週合計など1日分ではない可能性があります';
+  if(sales/trips<150) return '1件あたり売上が低すぎます。OCR誤読の可能性があります';
+  if(sales/trips>5000) return '1件あたり売上が高すぎます。OCR誤読の可能性があります';
+  return '';
+}
+
+function syncEditableRows(rows){
+  document.querySelectorAll('.batchRow').forEach(el=>{
+    const i=+el.dataset.index, r=rows[i];
+    r.checked=el.querySelector('.rowCheck').checked;
+    r.date=el.querySelector('.editDate').value;
+    r.sales=el.querySelector('.editSales').value;
+    r.inc=el.querySelector('.editInc').value;
+    r.trips=el.querySelector('.editTrips').value;
+    const h=+el.querySelector('.editHours').value||0;
+    const m=+el.querySelector('.editMinutes').value||0;
+    r.minutes=h*60+m;
+    r.warning=validateEditableRow(r);
+  });
+}
+
 function renderBatchResults(rows){
   const box=$('batchResults');
   if(!rows.length){box.innerHTML='';return;}
-  const ready=rows.filter(r=>r.status).length;
-  const needs=rows.length-ready;
+  rows.forEach(r=>r.warning=validateEditableRow(r));
+  const ready=rows.filter(r=>r.checked && !r.warning).length;
+  const needs=rows.filter(r=>r.checked && r.warning).length;
+
   box.innerHTML=`<div class="card" style="margin:10px 0 0;padding:12px">
     <b>取り込み確認</b>
-    <div class="muted" style="margin:6px 0 10px">${ready}件登録可能 ／ ${needs}件要確認</div>
-    ${rows.map((r,i)=>`<div class="item" style="padding:10px 0">
-      <b>${i+1}. ${r.file}</b>
-      <label style="margin:7px 0 4px">日付
-        <input class="batchDate" data-index="${i}" type="date" value="${r.date||''}">
-      </label>
-      <div class="muted">
-        ${r.status
-          ?`✅ 売上 ${yen(r.sales)}・インセンティブ ${yen(r.inc)}・${r.trips}件・${Math.floor(r.minutes/60)}時間${r.minutes%60}分${r.retryUsed?' ／ 売上再OCR済み':''}${r.dateSource?' ／ 日付候補: '+r.dateSource:''}`
-          :`⚠️ ${r.reason||'要確認'}${r.numericOk?` ／ 読取値: 売上 ${yen(r.sales)}・${r.trips}件・${Math.floor(r.minutes/60)}時間${r.minutes%60}分`:''}${r.retryUsed?' ／ 再OCR済み':''}`}
-      </div>
-    </div>`).join('')}
+    <div class="muted" style="margin:6px 0 10px">
+      数字が違う場合は、この画面で直接直してから登録できます。
+    </div>
+    <div class="muted" style="margin-bottom:10px">${ready}件登録可能 ／ ${needs}件要確認</div>
+
+    ${rows.map((r,i)=>{
+      const mins=+r.minutes||0;
+      return `<div class="item batchRow" data-index="${i}" style="padding:12px 0">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:700">
+          <input class="rowCheck" type="checkbox" ${r.checked?'checked':''} style="width:auto">
+          ${i+1}. ${r.file}
+        </label>
+
+        <div class="row">
+          <label>日付<input class="editDate" type="date" value="${r.date||''}"></label>
+          <label>売上（円）<input class="editSales" type="number" inputmode="numeric" value="${r.sales===''?'':r.sales}"></label>
+        </div>
+
+        <div class="row">
+          <label>インセンティブ（円）<input class="editInc" type="number" inputmode="numeric" value="${r.inc||0}"></label>
+          <label>配達件数<input class="editTrips" type="number" inputmode="numeric" value="${r.trips===''?'':r.trips}"></label>
+        </div>
+
+        <div class="row">
+          <label>稼働時間<input class="editHours" type="number" inputmode="numeric" min="0" max="24" value="${Math.floor(mins/60)}"></label>
+          <label>分<input class="editMinutes" type="number" inputmode="numeric" min="0" max="59" value="${mins%60}"></label>
+        </div>
+
+        <div class="rowWarn muted" style="${r.warning?'color:#b45309;font-weight:700':'color:#15803d'}">
+          ${r.warning?'⚠️ '+r.warning:'✅ 登録できます'}
+        </div>
+      </div>`;
+    }).join('')}
+
     <div class="actions" style="margin-top:10px">
-      <button class="btn primary" id="batchSaveBtn" type="button" ${ready?'':'disabled'}>確認できたデータ登録</button>
+      <button class="btn primary" id="batchSaveBtn" type="button">確認できたデータ登録</button>
       <button class="btn" id="batchClearBtn" type="button">取り込みをクリア</button>
     </div>
   </div>`;
 
-  document.querySelectorAll('.batchDate').forEach(inp=>{
+  box.querySelectorAll('input').forEach(inp=>{
     inp.onchange=()=>{
-      const i=+inp.dataset.index;
-      rows[i].date=inp.value;
-      const check=validateDailyCandidate(rows[i]);
-      rows[i].dailyValid=check.ok;
-      if(!check.ok) rows[i].reason=check.reason;
-      rows[i].status=!!(rows[i].numericOk && rows[i].dailyValid && rows[i].date);
+      syncEditableRows(rows);
+      box.querySelectorAll('.batchRow').forEach(el=>{
+        const i=+el.dataset.index, r=rows[i], warn=el.querySelector('.rowWarn');
+        warn.textContent=r.warning?'⚠️ '+r.warning:'✅ 登録できます';
+        warn.style.color=r.warning?'#b45309':'#15803d';
+        warn.style.fontWeight=r.warning?'700':'400';
+      });
     };
   });
 
   $('batchSaveBtn').onclick=()=>{
-    document.querySelectorAll('.batchDate').forEach(inp=>{
-      const i=+inp.dataset.index;
-      rows[i].date=inp.value;
-      const check=validateDailyCandidate(rows[i]);
-      rows[i].dailyValid=check.ok;
-      if(!check.ok) rows[i].reason=check.reason;
-      rows[i].status=!!(rows[i].numericOk && rows[i].dailyValid && rows[i].date);
-    });
+    syncEditableRows(rows);
     saveBatchRows(rows);
   };
+
   $('batchClearBtn').onclick=()=>{
     $('batchResults').innerHTML='';
     $('batchInfo').textContent='取り込みをクリアしました。';
@@ -492,33 +518,49 @@ function renderBatchResults(rows){
 }
 
 function saveBatchRows(rows){
-  const candidates=rows.filter(r=>r.status);
-  let added=0, replaced=0, skipped=0;
-  for(const q of candidates){
+  const selected=rows.filter(r=>r.checked);
+  const invalid=selected.filter(r=>validateEditableRow(r));
+  if(invalid.length){
+    $('batchInfo').textContent=`⚠️ ${invalid.length}件に確認が必要です。数字を直すか、登録しない行のチェックを外してください。`;
+    return;
+  }
+
+  let added=0,replaced=0,skipped=0;
+  for(const q of selected){
     const r={
       id:Date.now().toString()+'-'+Math.random().toString(36).slice(2,8),
-      date:q.date,service:'Uber Eats',
-      baseSales:+q.sales||0,incentive:+q.inc||0,
+      date:q.date,
+      service:'Uber Eats',
+      baseSales:+q.sales||0,
+      incentive:+q.inc||0,
       incentiveType:(+q.inc||0)>0?'その他':'なし',
-      expense:0,minutes:+q.minutes||0,trips:+q.trips||0,
-      slot:'朝',area:''
+      expense:0,
+      minutes:+q.minutes||0,
+      trips:+q.trips||0,
+      slot:'朝',
+      area:''
     };
-    // Exact duplicate = skip. Same date/service but different values = replace only after user confirmation.
+
     const exact=state.rows.find(x=>x.date===r.date&&x.service===r.service&&
       (+x.baseSales||0)===r.baseSales&&(+x.incentive||0)===r.incentive&&
       (+x.minutes||0)===r.minutes&&(+x.trips||0)===r.trips);
     if(exact){skipped++;continue;}
+
     const sameDate=state.rows.find(x=>x.date===r.date&&x.service===r.service);
     if(sameDate){
-      const ok=confirm(`${r.date}のUberデータは既に登録されています。\n既存データを今回の読み取り結果で上書きしますか？`);
-      if(ok){state.rows=state.rows.map(x=>x.id===sameDate.id?{...r,id:x.id}:x);replaced++;}
-      else skipped++;
+      const ok=confirm(`${r.date}のUberデータは既に登録されています。\n今回の内容で上書きしますか？`);
+      if(ok){
+        state.rows=state.rows.map(x=>x.id===sameDate.id?{...r,id:x.id}:x);
+        replaced++;
+      }else skipped++;
     }else{
-      state.rows.push(r);added++;
+      state.rows.push(r);
+      added++;
     }
   }
+
   save();render();$('aiOutput').textContent=localAI();
-  $('batchInfo').textContent=`一括登録完了：新規${added}件・上書き${replaced}件・スキップ${skipped}件。`;
+  $('batchInfo').textContent=`登録完了：新規${added}件・上書き${replaced}件・スキップ${skipped}件。`;
   $('batchResults').innerHTML='';
 }
 
@@ -540,8 +582,8 @@ $('shot').onchange=async e=>{
     rows.push(makeBatchRow(r,i+1));
     renderBatchResults(rows);
   }
-  const good=rows.filter(r=>r.status).length,bad=rows.length-good;
-  $('batchInfo').textContent=`OCR完了：${files.length}枚。登録候補 ${good}件／要確認 ${bad}件。確認できたものだけ一括登録できます。`;
+  const good=rows.filter(r=>!validateEditableRow(r)).length,bad=rows.length-good;
+  $('batchInfo').textContent=`OCR完了：${files.length}枚。そのまま登録可能 ${good}件／要確認 ${bad}件。要確認は一覧で直接修正できます。`;
   $('ocrStatus').textContent=`一括OCR完了：${good}件の登録候補、${bad}件の要確認。`;
 };
 
@@ -687,7 +729,7 @@ render();$('aiOutput').textContent=localAI();
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      const reg = await navigator.serviceWorker.register('./sw.js?v=2.16', {updateViaCache:'none'});
+      const reg = await navigator.serviceWorker.register('./sw.js?v=2.18', {updateViaCache:'none'});
       await reg.update();
     } catch(e) { console.log('SW update', e); }
   });
