@@ -25,7 +25,7 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 </style>
 </head>
 <body><main>
-<h1>Delivery Pilot <span class="muted">v2.14 AI</span></h1>
+<h1>Delivery Pilot <span class="muted">v2.15 AI</span></h1>
 <div class="muted">配達員向け スクショOCR・自動入力・AI稼働分析テスト版</div>
 
 <div class="card">
@@ -309,17 +309,27 @@ function makeBatchRow(r, idx){
   const trips=x.trips;
   const mins=x.hm?(x.hm.h*60+x.hm.m):0;
   const numericOk=r.ok && sales!=null && trips!=null && mins>0;
-  const status=numericOk && !!date;
-  let reason='';
-  if(!r.ok) reason='OCRエラー';
-  else if(!date) reason='日付だけ確認してください';
-  else if(sales==null) reason='売上を特定できません';
-  else if(trips==null) reason='件数を特定できません';
-  else if(mins<=0) reason='オンライン時間を特定できません';
-  return {
+
+  let baseReason='';
+  if(!r.ok) baseReason='OCRエラー';
+  else if(sales==null) baseReason='売上を特定できません';
+  else if(trips==null) baseReason='件数を特定できません';
+  else if(mins<=0) baseReason='オンライン時間を特定できません';
+  else if(!date) baseReason='日付だけ確認してください';
+
+  let row={
     index:idx,file:r.file,date,dateSource,sales,inc:inc||0,trips,minutes:mins,
-    period:r.period,selectedDate:r.selectedDate,status,numericOk,reason,text:r.text
+    period:r.period,selectedDate:r.selectedDate,status:false,numericOk,reason:baseReason,text:r.text
   };
+
+  if(numericOk){
+    const check=validateDailyCandidate(row);
+    row.dailyValid=check.ok;
+    if(!check.ok) row.reason=check.reason;
+  }else row.dailyValid=false;
+
+  row.status=!!(row.numericOk && row.dailyValid && row.date);
+  return row;
 }
 
 function extractDateFromOcr(text){
@@ -334,10 +344,26 @@ function extractDateFromOcr(text){
   return '';
 }
 
+
+function validateDailyCandidate(r){
+  if(!r || !r.numericOk) return {ok:false, reason:r&&r.reason?r.reason:'読み取り不足'};
+  const sales=+r.sales||0, trips=+r.trips||0, minutes=+r.minutes||0;
+  const hours=minutes/60, avg=trips?sales/trips:0;
+
+  // 明らかに日別ではない値・OCR誤読を自動で止める。
+  if(trips<=0) return {ok:false,reason:'配達件数を確認してください'};
+  if(sales<=0) return {ok:false,reason:'売上を確認してください'};
+  if(hours>18 || trips>70) return {ok:false,reason:'週合計など、1日分ではない可能性があります'};
+  if(avg<150) return {ok:false,reason:'1件あたり売上が低すぎるためOCR誤読の可能性があります'};
+  if(avg>5000) return {ok:false,reason:'1件あたり売上が高すぎるためOCR誤読の可能性があります'};
+  if(sales<500 && trips>=3) return {ok:false,reason:'売上が小さすぎるためOCR誤読の可能性があります'};
+  return {ok:true,reason:''};
+}
+
 function renderBatchResults(rows){
   const box=$('batchResults');
   if(!rows.length){box.innerHTML='';return;}
-  const ready=rows.filter(r=>r.numericOk && r.date).length;
+  const ready=rows.filter(r=>r.status).length;
   const needs=rows.length-ready;
   box.innerHTML=`<div class="card" style="margin:10px 0 0;padding:12px">
     <b>取り込み確認</b>
@@ -348,13 +374,13 @@ function renderBatchResults(rows){
         <input class="batchDate" data-index="${i}" type="date" value="${r.date||''}">
       </label>
       <div class="muted">
-        ${r.numericOk
-          ?`${r.date?'✅':'⚠️'} 売上 ${yen(r.sales)}・インセンティブ ${yen(r.inc)}・${r.trips}件・${Math.floor(r.minutes/60)}時間${r.minutes%60}分${r.dateSource?' ／ 日付候補: '+r.dateSource:''}`
-          :'⚠️ '+r.reason}
+        ${r.status
+          ?`✅ 売上 ${yen(r.sales)}・インセンティブ ${yen(r.inc)}・${r.trips}件・${Math.floor(r.minutes/60)}時間${r.minutes%60}分${r.dateSource?' ／ 日付候補: '+r.dateSource:''}`
+          :`⚠️ ${r.reason||'要確認'}${r.numericOk?` ／ 読取値: 売上 ${yen(r.sales)}・${r.trips}件・${Math.floor(r.minutes/60)}時間${r.minutes%60}分`:''}`}
       </div>
     </div>`).join('')}
     <div class="actions" style="margin-top:10px">
-      <button class="btn primary" id="batchSaveBtn" type="button">確認できたデータ登録</button>
+      <button class="btn primary" id="batchSaveBtn" type="button" ${ready?'':'disabled'}>確認できたデータ登録</button>
       <button class="btn" id="batchClearBtn" type="button">取り込みをクリア</button>
     </div>
   </div>`;
@@ -363,7 +389,10 @@ function renderBatchResults(rows){
     inp.onchange=()=>{
       const i=+inp.dataset.index;
       rows[i].date=inp.value;
-      rows[i].status=!!(rows[i].numericOk && rows[i].date);
+      const check=validateDailyCandidate(rows[i]);
+      rows[i].dailyValid=check.ok;
+      if(!check.ok) rows[i].reason=check.reason;
+      rows[i].status=!!(rows[i].numericOk && rows[i].dailyValid && rows[i].date);
     };
   });
 
@@ -371,7 +400,10 @@ function renderBatchResults(rows){
     document.querySelectorAll('.batchDate').forEach(inp=>{
       const i=+inp.dataset.index;
       rows[i].date=inp.value;
-      rows[i].status=!!(rows[i].numericOk && rows[i].date);
+      const check=validateDailyCandidate(rows[i]);
+      rows[i].dailyValid=check.ok;
+      if(!check.ok) rows[i].reason=check.reason;
+      rows[i].status=!!(rows[i].numericOk && rows[i].dailyValid && rows[i].date);
     });
     saveBatchRows(rows);
   };
@@ -577,7 +609,7 @@ render();$('aiOutput').textContent=localAI();
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      const reg = await navigator.serviceWorker.register('./sw.js?v=2.14', {updateViaCache:'none'});
+      const reg = await navigator.serviceWorker.register('./sw.js?v=2.15', {updateViaCache:'none'});
       await reg.update();
     } catch(e) { console.log('SW update', e); }
   });
