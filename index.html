@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
-<title>Delivery Pilot v2.8 AI Web</title>
+<title>Delivery Pilot v2.9 AI Web</title>
 <link rel="manifest" href="manifest.json">
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f3f4f6}
@@ -25,7 +25,7 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 </style>
 </head>
 <body><main>
-<h1>Delivery Pilot <span class="muted">v2.8 AI</span></h1>
+<h1>Delivery Pilot <span class="muted">v2.9 AI</span></h1>
 <div class="muted">配達員向け スクショOCR・自動入力・AI稼働分析テスト版</div>
 
 <div class="card">
@@ -61,6 +61,7 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 <button class="btn primary" id="shotBtn" type="button" style="display:block;width:100%;text-align:center;margin-top:12px">スクショを選択</button>
 <input id="shot" type="file" accept="image/*,.png,.jpg,.jpeg,.webp" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" aria-label="スクリーンショットを選択">
 <img id="preview" hidden alt="選択したスクリーンショット">
+<div id="shotPeriodNotice" class="muted" style="display:none;margin-top:10px;padding:10px;border:1px solid #d1d5db;border-radius:10px"></div>
 <div id="ocrStatus" class="muted" style="margin-top:8px"></div>
 <textarea id="ocrText" placeholder="OCR結果 / またはスクショ内の文字を貼り付け" style="width:100%;min-height:110px;margin-top:10px;padding:10px;border:1px solid #d1d5db;border-radius:10px"></textarea>
 <div class="actions" style="margin-top:8px"><button class="btn" id="parseOcr" type="button">読み取り結果を入力欄へ反映</button></div>
@@ -203,7 +204,7 @@ $('shotBtn').onclick=()=>{
 $('shot').onchange=async e=>{
  let f=e.target.files[0];if(!f)return;
  let u=URL.createObjectURL(f);$('preview').src=u;$('preview').hidden=false;
- $('ocrStatus').textContent='OCRを準備しています…';$('ocrText').value='';
+ $('ocrStatus').textContent='OCRを準備しています…';$('ocrText').value='';$('shotPeriodNotice').style.display='none';$('shotPeriodNotice').textContent='';
  try{
    if(!window.Tesseract) throw new Error('OCRライブラリを読み込めませんでした');
    $('ocrStatus').textContent='スクショ全体を読み取り中…';
@@ -237,7 +238,9 @@ $('shot').onchange=async e=>{
    let statText=(stat.data&&stat.data.text)||'';
    let txt=fullText+'\n\n--- 統計欄（拡大OCR） ---\n'+statText;
    $('ocrText').value=txt;
+   const shotPeriod=updateScreenshotPeriodNotice(txt);
    const found=applyOcrText(txt,true);
+   if(shotPeriod.type==='week'){ $('date').value=''; }
    const x=extractUberFields(txt);
    const parts=[];
    if(x.sales!=null) parts.push(`売上 ${yen(x.sales)}`);
@@ -305,6 +308,22 @@ function extractUberFields(text){
  return {sales,inc,trips,hm};
 }
 
+function detectScreenshotPeriod(text){
+ const t=normalizeOcr(text);
+ // Uber weekly header examples: 9月28日 - 10月5日 / 9月28日–10月5日
+ const m=t.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日?\s*[-–—~〜ー]\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?/);
+ if(m) return {type:'week',label:`${+m[1]}月${+m[2]}日〜${+m[3]}月${+m[4]}日`};
+ return {type:'unknown',label:''};
+}
+function updateScreenshotPeriodNotice(text){
+ const p=detectScreenshotPeriod(text), box=$('shotPeriodNotice');
+ if(p.type==='week'){
+   box.style.display='block';
+   box.textContent=`⚠️ 週の売上スクショ（${p.label}）を検出しました。この金額は1日分として自動保存しません。日別の売上を登録する場合は、Uberで対象日の画面を開いたスクショを選んでください。`;
+   return p;
+ }
+ box.style.display='none'; box.textContent=''; return p;
+}
 function applyOcrText(text,auto=false){
  const x=extractUberFields(text);
  let count=0;
@@ -368,7 +387,7 @@ render();$('aiOutput').textContent=localAI();
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      const reg = await navigator.serviceWorker.register('./sw.js?v=2.8', {updateViaCache:'none'});
+      const reg = await navigator.serviceWorker.register('./sw.js?v=2.9', {updateViaCache:'none'});
       await reg.update();
     } catch(e) { console.log('SW update', e); }
   });

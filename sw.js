@@ -1,4 +1,4 @@
-const CACHE = 'delivery-pilot-v2-8';
+const CACHE = 'delivery-pilot-v2-9';
 const CORE = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', event => {
