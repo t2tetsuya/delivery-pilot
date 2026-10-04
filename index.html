@@ -25,7 +25,7 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 </style>
 </head>
 <body><main>
-<h1>Delivery Pilot <span class="muted">v2.15 AI</span></h1>
+<h1>Delivery Pilot <span class="muted">v2.16 AI</span></h1>
 <div class="muted">配達員向け スクショOCR・自動入力・AI稼働分析テスト版</div>
 
 <div class="card">
@@ -255,6 +255,70 @@ function selectedDateFromWeek(period,index){
   const d=new Date(y,sm-1,sd); d.setDate(d.getDate()+index);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
+
+function looksSuspiciousDaily(fields){
+  if(!fields) return true;
+  const sales=+fields.sales||0;
+  const trips=+fields.trips||0;
+  const mins=fields.hm?(+fields.hm.h*60 + +fields.hm.m):0;
+  const hours=mins/60;
+  const avg=trips?sales/trips:0;
+  if(sales<=0 || trips<=0 || mins<=0) return true;
+  if(hours>18 || trips>70) return true;
+  if(sales<500 && trips>=3) return true;
+  if(avg<150 || avg>5000) return true;
+  return false;
+}
+
+async function retryMoneyOcr(img, index, total){
+  // 売上周辺を中心に、全体OCRとは別条件で再読み取りする。
+  const crop=document.createElement('canvas');
+  const W=img.naturalWidth, H=img.naturalHeight;
+  const sx=Math.floor(W*0.02), sy=Math.floor(H*0.08);
+  const sw=Math.floor(W*0.96), sh=Math.floor(H*0.58);
+  const scale=2.2;
+  crop.width=Math.floor(sw*scale);
+  crop.height=Math.floor(sh*scale);
+  const ctx=crop.getContext('2d',{willReadFrequently:true});
+  ctx.drawImage(img,sx,sy,sw,sh,0,0,crop.width,crop.height);
+
+  const data=ctx.getImageData(0,0,crop.width,crop.height);
+  for(let i=0;i<data.data.length;i+=4){
+    const y=.299*data.data[i]+.587*data.data[i+1]+.114*data.data[i+2];
+    let v;
+    if(y>210) v=255;
+    else if(y<80) v=0;
+    else v=Math.max(0,Math.min(255,(y-128)*2.8+128));
+    data.data[i]=data.data[i+1]=data.data[i+2]=v;
+  }
+  ctx.putImageData(data,0,0);
+
+  $('ocrStatus').textContent=`${index}/${total}枚目 売上を再読み取り中…`;
+  const retry=await Tesseract.recognize(crop,'jpn+eng');
+  const retryText=(retry.data&&retry.data.text)||'';
+  const retryFields=extractUberFields(retryText);
+  return {text:retryText, fields:retryFields};
+}
+
+function chooseBetterFields(primary, retry){
+  if(!retry) return primary;
+  const p=primary||{}, r=retry||{};
+  const pBad=looksSuspiciousDaily(p);
+  const rBad=looksSuspiciousDaily(r);
+
+  if(pBad && !rBad) return r;
+
+  // 再OCRで売上だけ改善した場合、件数/時間は元の値を残す。
+  const mixed={...p};
+  const ps=+p.sales||0, rs=+r.sales||0;
+  if((ps<500 || !ps) && rs>=500) mixed.sales=rs;
+  if((p.inc==null || +p.inc<0) && r.inc!=null) mixed.inc=r.inc;
+  if(p.trips==null && r.trips!=null) mixed.trips=r.trips;
+  if(!p.hm && r.hm) mixed.hm=r.hm;
+
+  return looksSuspiciousDaily(mixed) && !rBad ? r : mixed;
+}
+
 async function ocrOneFile(f, index, total){
   const u=URL.createObjectURL(f);
   try{
@@ -288,10 +352,20 @@ async function ocrOneFile(f, index, total){
     const p=detectScreenshotPeriod(txt);
     const selectedIndex=p.type==='week'?detectSelectedUberDayIndex(img):null;
     const selectedDate=p.type==='week'?selectedDateFromWeek(p,selectedIndex):'';
-    const x=extractUberFields(txt);
+    let x=extractUberFields(txt);
+    let retryUsed=false, retryText='';
+    if(looksSuspiciousDaily(x)){
+      try{
+        const rr=await retryMoneyOcr(img,index,total);
+        retryText=rr.text||'';
+        const better=chooseBetterFields(x,rr.fields);
+        if(JSON.stringify(better)!==JSON.stringify(x)) retryUsed=true;
+        x=better;
+      }catch(e){}
+    }
     const lm=f.lastModified?new Date(f.lastModified):null;
     const fileDate=lm&&!isNaN(lm)?`${lm.getFullYear()}-${String(lm.getMonth()+1).padStart(2,'0')}-${String(lm.getDate()).padStart(2,'0')}`:'';
-    return {file:f.name,text:txt,period:p,selectedDate,fileDate,fields:x,ok:true};
+    return {file:f.name,text:txt+(retryText?'\n\n--- 売上再OCR ---\n'+retryText:''),period:p,selectedDate,fileDate,fields:x,ok:true,retryUsed};
   }catch(err){
     return {file:f.name,text:'',period:{type:'unknown'},selectedDate:'',fields:{sales:null,inc:null,trips:null,hm:null},ok:false,error:String(err&&err.message?err.message:err)};
   }finally{
@@ -308,10 +382,13 @@ function makeBatchRow(r, idx){
   const inc=x.inc;
   const trips=x.trips;
   const mins=x.hm?(x.hm.h*60+x.hm.m):0;
-  const numericOk=r.ok && sales!=null && trips!=null && mins>0;
+  const hours=mins/60;
+  const aggregateLikely=(hours>18 || (+trips||0)>70);
+  const numericOk=r.ok && sales!=null && trips!=null && mins>0 && !aggregateLikely;
 
   let baseReason='';
   if(!r.ok) baseReason='OCRエラー';
+  else if(aggregateLikely) baseReason='週合計など、1日分ではない可能性があります';
   else if(sales==null) baseReason='売上を特定できません';
   else if(trips==null) baseReason='件数を特定できません';
   else if(mins<=0) baseReason='オンライン時間を特定できません';
@@ -319,7 +396,8 @@ function makeBatchRow(r, idx){
 
   let row={
     index:idx,file:r.file,date,dateSource,sales,inc:inc||0,trips,minutes:mins,
-    period:r.period,selectedDate:r.selectedDate,status:false,numericOk,reason:baseReason,text:r.text
+    period:r.period,selectedDate:r.selectedDate,status:false,numericOk,reason:baseReason,
+    text:r.text,retryUsed:!!r.retryUsed,aggregateLikely
   };
 
   if(numericOk){
@@ -375,8 +453,8 @@ function renderBatchResults(rows){
       </label>
       <div class="muted">
         ${r.status
-          ?`✅ 売上 ${yen(r.sales)}・インセンティブ ${yen(r.inc)}・${r.trips}件・${Math.floor(r.minutes/60)}時間${r.minutes%60}分${r.dateSource?' ／ 日付候補: '+r.dateSource:''}`
-          :`⚠️ ${r.reason||'要確認'}${r.numericOk?` ／ 読取値: 売上 ${yen(r.sales)}・${r.trips}件・${Math.floor(r.minutes/60)}時間${r.minutes%60}分`:''}`}
+          ?`✅ 売上 ${yen(r.sales)}・インセンティブ ${yen(r.inc)}・${r.trips}件・${Math.floor(r.minutes/60)}時間${r.minutes%60}分${r.retryUsed?' ／ 売上再OCR済み':''}${r.dateSource?' ／ 日付候補: '+r.dateSource:''}`
+          :`⚠️ ${r.reason||'要確認'}${r.numericOk?` ／ 読取値: 売上 ${yen(r.sales)}・${r.trips}件・${Math.floor(r.minutes/60)}時間${r.minutes%60}分`:''}${r.retryUsed?' ／ 再OCR済み':''}`}
       </div>
     </div>`).join('')}
     <div class="actions" style="margin-top:10px">
@@ -609,7 +687,7 @@ render();$('aiOutput').textContent=localAI();
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      const reg = await navigator.serviceWorker.register('./sw.js?v=2.15', {updateViaCache:'none'});
+      const reg = await navigator.serviceWorker.register('./sw.js?v=2.16', {updateViaCache:'none'});
       await reg.update();
     } catch(e) { console.log('SW update', e); }
   });
