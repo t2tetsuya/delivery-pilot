@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
-<title>Delivery Pilot v2.6 AI Web</title>
+<title>Delivery Pilot v2.7 AI Web</title>
 <link rel="manifest" href="manifest.json">
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f3f4f6}
@@ -25,7 +25,7 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 </style>
 </head>
 <body><main>
-<h1>Delivery Pilot <span class="muted">v2.6 AI</span></h1>
+<h1>Delivery Pilot <span class="muted">v2.7 AI</span></h1>
 <div class="muted">配達員向け スクショOCR・自動入力・AI稼働分析テスト版</div>
 
 <div class="card">
@@ -360,4 +360,16 @@ $('exportBtn').onclick=()=>{let blob=new Blob([JSON.stringify(state,null,2)],{ty
 $('importFile').onchange=async e=>{try{let o=JSON.parse(await e.target.files[0].text());if(!o||!Array.isArray(o.rows))throw 0;state=o;if(!state.goals)state.goals={today:+state.goal||15000,week:90000,month:450000,year:5400000,all:0};for(const r of state.rows){if(r.baseSales==null){r.baseSales=+r.sales||0;r.incentive=+r.incentive||0;r.incentiveType=r.incentiveType||'なし'}}delete state.goal;save();render();alert('バックアップを読み込みました')}catch{alert('バックアップファイルを読み込めませんでした')}};
 render();$('aiOutput').textContent=localAI();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js?v=23').catch(()=>{});
-</script></body></html>
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', async () => {
+    try {
+      const reg = await navigator.serviceWorker.register('./sw.js?v=2.7', {updateViaCache:'none'});
+      await reg.update();
+    } catch(e) { console.log('SW update', e); }
+  });
+}
+</script>
+
+</body></html>
