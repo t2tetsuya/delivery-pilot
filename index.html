@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<title>Delivery Pilot v2 Web</title>
+<link rel="manifest" href="manifest.json">
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f3f4f6}
+*{box-sizing:border-box}body{margin:0}main{max-width:760px;margin:auto;padding:16px 14px 80px}
+h1{font-size:24px;margin:6px 0}h2{font-size:17px;margin:0 0 12px}.muted{color:#6b7280;font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:14px;margin:12px 0}
+.metric b{font-size:22px;display:block;margin-top:5px}.tabs{display:flex;gap:7px;overflow:auto;padding-bottom:3px}.tabs button,.btn{border:0;border-radius:12px;padding:11px 14px;font-size:15px;background:#e5e7eb}.tabs button.on,.primary{background:#111827;color:#fff}
+label{display:block;font-size:13px;margin:9px 0}input,select{width:100%;font-size:16px;padding:12px;border:1px solid #d1d5db;border-radius:10px;background:white}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions .btn{flex:1;min-width:120px}
+.item{border-top:1px solid #eee;padding:10px 0}.item:first-child{border-top:0}.right{float:right}.good{font-weight:700}
+img#preview{width:100%;max-height:260px;object-fit:contain;border-radius:12px;margin-top:10px}
+canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
+@media(min-width:650px){.grid{grid-template-columns:repeat(5,1fr)}}
+</style>
+</head>
+<body><main>
+<h1>Delivery Pilot <span class="muted">v2 Web</span></h1>
+<div class="muted">配達員向け 売上・利益・稼働分析テスト版</div>
+
+<div class="card">
+  <div class="tabs" id="periodTabs">
+    <button data-p="today" class="on">今日</button><button data-p="week">今週</button><button data-p="month">今月</button><button data-p="year">今年</button><button data-p="all">累計</button>
+  </div>
+  <div class="grid" style="margin-top:12px">
+    <div class="metric"><span class="muted">売上</span><b id="mSales">¥0</b></div>
+    <div class="metric"><span class="muted">経費</span><b id="mExpense">¥0</b></div>
+    <div class="metric"><span class="muted">実質利益</span><b id="mProfit">¥0</b></div>
+    <div class="metric"><span class="muted">時給</span><b id="mHourly">¥0</b></div>
+    <div class="metric"><span class="muted">配達</span><b id="mTrips">0件</b></div>
+  </div>
+</div>
+
+<div class="card">
+<h2>目標</h2>
+<div class="row"><label>今日の売上目標<input id="goal" type="number" inputmode="numeric" min="0" value="15000"></label>
+<label>あと<div id="remaining" style="font-size:24px;font-weight:700;margin-top:10px">¥0</div></label></div>
+</div>
+
+<div class="card">
+<h2>Uber等のスクショを取り込む</h2>
+<div class="muted">画像を選んで確認し、下の入力欄へ登録します。この無料Web版ではOCR自動読取は未接続です。</div>
+<label class="btn primary" style="display:block;text-align:center;margin-top:12px">スクショを選択<input id="shot" type="file" accept="image/*" hidden></label>
+<img id="preview" hidden alt="選択したスクリーンショット">
+</div>
+
+<form id="form" class="card">
+<h2>稼働を登録</h2>
+<div class="row"><label>日付<input id="date" type="date" required></label><label>サービス<select id="service"><option>Uber Eats</option><option>出前館</option><option>menu</option><option>Wolt</option><option>その他</option></select></label></div>
+<div class="row"><label>売上（円）<input id="sales" type="number" inputmode="numeric" min="0" required></label><label>経費（円）<input id="expense" type="number" inputmode="numeric" min="0" value="0"></label></div>
+<div class="row"><label>稼働時間<input id="hours" type="number" inputmode="numeric" min="0" max="24" value="0"></label><label>分<input id="minutes" type="number" inputmode="numeric" min="0" max="59" value="0"></label></div>
+<div class="row"><label>配達件数<input id="trips" type="number" inputmode="numeric" min="0" required></label><label>時間帯<select id="slot"><option>朝</option><option>昼</option><option>夕方</option><option>夜</option><option>深夜</option></select></label></div>
+<label>エリア<input id="area" maxlength="40" placeholder="例：関内・横浜駅"></label>
+<div class="actions"><button class="btn primary" type="submit">保存して分析</button><button class="btn" type="button" id="cancelEdit" hidden>編集取消</button></div>
+<div id="msg" class="muted" style="margin-top:8px"></div>
+</form>
+
+<div class="card"><h2>日別売上</h2><canvas id="chart" width="700" height="180"></canvas></div>
+<div class="card"><h2>サービス別</h2><div id="services"></div></div>
+<div class="card"><h2>時間帯・エリア分析</h2><div id="analysis"></div></div>
+<div class="card"><h2>履歴</h2><div id="history"></div></div>
+<div class="card">
+<h2>バックアップ</h2>
+<div class="actions"><button class="btn" id="exportBtn" type="button">JSONを書き出す</button><label class="btn" style="text-align:center">JSONを読み込む<input id="importFile" type="file" accept="application/json" hidden></label></div>
+<div class="muted" style="margin-top:8px">データはこのブラウザの端末内ストレージに保存します。Safariのデータ消去等で失われる可能性があるため、定期的にバックアップしてください。</div>
+</div>
+</main>
+<script>
+const KEY='deliveryPilotV2Web';
+const yen=n=>'¥'+Math.round(n||0).toLocaleString('ja-JP');
+const today=()=>new Date().toISOString().slice(0,10);
+let state=JSON.parse(localStorage.getItem(KEY)||'null')||{goal:15000,rows:[
+{id:'seed1',date:'2026-10-03',service:'Uber Eats',sales:11377,expense:0,minutes:344,trips:22,slot:'朝',area:''},
+{id:'seed2',date:'2026-10-04',service:'Uber Eats',sales:6380,expense:0,minutes:202,trips:15,slot:'朝',area:''}
+]};
+let period='today', editing=null;
+const $=id=>document.getElementById(id);
+$('date').value=today(); $('goal').value=state.goal;
+function save(){localStorage.setItem(KEY,JSON.stringify(state))}
+function startOfWeek(d){let x=new Date(d+'T12:00:00'),day=(x.getDay()+6)%7;x.setDate(x.getDate()-day);return x.toISOString().slice(0,10)}
+function filtered(){
+ let t=today(), ws=startOfWeek(t), ym=t.slice(0,7), y=t.slice(0,4);
+ return state.rows.filter(r=>period==='all'||(period==='today'&&r.date===t)||(period==='week'&&r.date>=ws&&r.date<=t)||(period==='month'&&r.date.startsWith(ym))||(period==='year'&&r.date.startsWith(y)));
+}
+function sum(rows){return rows.reduce((a,r)=>(a.sales+=+r.sales,a.expense+=+r.expense,a.minutes+=+r.minutes,a.trips+=+r.trips,a),{sales:0,expense:0,minutes:0,trips:0})}
+function render(){
+ let rows=filtered(),s=sum(rows),hr=s.minutes?s.sales/(s.minutes/60):0;
+ $('mSales').textContent=yen(s.sales);$('mExpense').textContent=yen(s.expense);$('mProfit').textContent=yen(s.sales-s.expense);$('mHourly').textContent=yen(hr);$('mTrips').textContent=s.trips+'件';
+ let ts=sum(state.rows.filter(r=>r.date===today())).sales; $('remaining').textContent=yen(Math.max(0,state.goal-ts));
+ let bySvc={};state.rows.forEach(r=>bySvc[r.service]=(bySvc[r.service]||0)+(+r.sales));
+ $('services').innerHTML=Object.entries(bySvc).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="item">${k}<b class="right">${yen(v)}</b></div>`).join('')||'<div class="muted">データなし</div>';
+ let groups={};state.rows.forEach(r=>{let k=(r.slot||'未設定')+' / '+(r.area||'エリア未設定');let g=groups[k]||{sales:0,min:0,trips:0};g.sales+=+r.sales;g.min+=+r.minutes;g.trips+=+r.trips;groups[k]=g});
+ $('analysis').innerHTML=Object.entries(groups).map(([k,g])=>`<div class="item"><b>${k}</b><div class="muted">売上 ${yen(g.sales)}・時給 ${yen(g.min?g.sales/(g.min/60):0)}・${g.trips}件</div></div>`).join('');
+ $('history').innerHTML=state.rows.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(r=>`<div class="item"><b>${r.date} ${r.service}</b><span class="right">${yen(r.sales)}</span><div class="muted">${Math.floor(r.minutes/60)}時間${r.minutes%60}分・${r.trips}件・経費 ${yen(r.expense)}・${r.slot}${r.area?'・'+r.area:''}</div><div class="actions" style="margin-top:7px"><button class="btn edit" data-id="${r.id}" type="button">編集</button><button class="btn del" data-id="${r.id}" type="button">削除</button></div></div>`).join('');
+ drawChart(); document.querySelectorAll('.edit').forEach(b=>b.onclick=()=>editRow(b.dataset.id));document.querySelectorAll('.del').forEach(b=>b.onclick=()=>{if(confirm('この記録を削除しますか？')){state.rows=state.rows.filter(r=>r.id!==b.dataset.id);save();render()}});
+}
+function drawChart(){let c=$('chart'),ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);let d={};state.rows.forEach(r=>d[r.date]=(d[r.date]||0)+(+r.sales));let arr=Object.entries(d).sort().slice(-14);if(!arr.length)return;let max=Math.max(...arr.map(x=>x[1]),1),pad=28,w=(c.width-pad*2)/arr.length;ctx.font='11px sans-serif';ctx.fillStyle='#6b7280';arr.forEach(([date,v],i)=>{let h=(v/max)*120,x=pad+i*w+5,y=145-h;ctx.fillStyle='#374151';ctx.fillRect(x,y,Math.max(8,w-10),h);ctx.fillStyle='#6b7280';ctx.fillText(date.slice(5),x,164)});}
+function editRow(id){let r=state.rows.find(x=>x.id===id);if(!r)return;editing=id;$('date').value=r.date;$('service').value=r.service;$('sales').value=r.sales;$('expense').value=r.expense;$('hours').value=Math.floor(r.minutes/60);$('minutes').value=r.minutes%60;$('trips').value=r.trips;$('slot').value=r.slot;$('area').value=r.area;$('cancelEdit').hidden=false;window.scrollTo({top:$('form').offsetTop-10,behavior:'smooth'})}
+$('cancelEdit').onclick=()=>{editing=null;$('form').reset();$('date').value=today();$('expense').value=0;$('cancelEdit').hidden=true};
+$('form').onsubmit=e=>{e.preventDefault();let min=+$('hours').value*60 + +$('minutes').value;if(min<=0){$('msg').textContent='稼働時間を入力してください。';return}let r={id:editing||Date.now().toString(),date:$('date').value,service:$('service').value,sales:+$('sales').value,expense:+$('expense').value,minutes:min,trips:+$('trips').value,slot:$('slot').value,area:$('area').value.trim()};if(editing){state.rows=state.rows.map(x=>x.id===editing?r:x)}else state.rows.push(r);editing=null;save();$('form').reset();$('date').value=today();$('expense').value=0;$('cancelEdit').hidden=true;$('msg').textContent='保存しました。';render()};
+$('goal').onchange=()=>{state.goal=Math.max(0,+$('goal').value||0);save();render()};
+document.querySelectorAll('#periodTabs button').forEach(b=>b.onclick=()=>{period=b.dataset.p;document.querySelectorAll('#periodTabs button').forEach(x=>x.classList.toggle('on',x===b));render()});
+$('shot').onchange=e=>{let f=e.target.files[0];if(!f)return;let u=URL.createObjectURL(f);$('preview').src=u;$('preview').hidden=false};
+$('exportBtn').onclick=()=>{let blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='delivery-pilot-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
+$('importFile').onchange=async e=>{try{let o=JSON.parse(await e.target.files[0].text());if(!o||!Array.isArray(o.rows))throw 0;state=o;save();$('goal').value=state.goal||0;render();alert('バックアップを読み込みました')}catch{alert('バックアップファイルを読み込めませんでした')}};
+render();
+if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
+</script></body></html>
