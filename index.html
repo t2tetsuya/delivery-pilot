@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
-<title>Delivery Pilot v2.19 AI Web</title>
+<title>Delivery Pilot v2.21 AI Web</title>
 <link rel="manifest" href="manifest.json">
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f3f4f6}
@@ -25,7 +25,7 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 </style>
 </head>
 <body><main>
-<h1>Delivery Pilot <span class="muted">v2.19 AI</span></h1>
+<h1>Delivery Pilot <span class="muted">v2.21 AI</span></h1>
 <div class="muted">配達員向け スクショOCR・自動入力・AI稼働分析テスト版</div>
 <div id="updateStatus" class="muted" style="margin-top:6px">v2.19 / build 1791097656</div>
 
@@ -382,7 +382,8 @@ function makeBatchRow(r, idx){
   return {
     index:idx,file:r.file,date,
     sales,inc,trips,minutes:mins,
-    checked:true,
+    total:x.total==null?'':x.total,
+    checked:false,
     text:r.text,
     warning:''
   };
@@ -423,13 +424,18 @@ function validateEditableRow(r){
   const inc=+r.inc||0;
   const trips=+r.trips||0;
   const mins=+r.minutes||0;
+  const total=r.total===''?null:(+r.total||0);
+
   if(!date) return '日付を入力してください';
-  if(sales<=0) return '売上を確認してください';
+  if(sales<=0) return '配達報酬を確認してください';
   if(trips<=0) return '件数を確認してください';
   if(mins<=0) return '稼働時間を確認してください';
   if(mins>18*60 || trips>70) return '週合計など1日分ではない可能性があります';
-  if(sales/trips<150) return '1件あたり売上が低すぎます。OCR誤読の可能性があります';
-  if(sales/trips>5000) return '1件あたり売上が高すぎます。OCR誤読の可能性があります';
+  if((sales+inc)/trips<150) return '1件あたり売上が低すぎます。OCR誤読の可能性があります';
+  if((sales+inc)/trips>5000) return '1件あたり売上が高すぎます。OCR誤読の可能性があります';
+  if(total!=null && total>0 && Math.abs((sales+inc)-total)>1){
+    return `合計が一致しません（画面 ${yen(total)} / 入力 ${yen(sales+inc)}）`;
+  }
   return '';
 }
 
@@ -472,7 +478,7 @@ function renderBatchResults(rows){
 
         <div class="row">
           <label>日付<input class="editDate" type="date" value="${r.date||''}"></label>
-          <label>売上（円）<input class="editSales" type="number" inputmode="numeric" value="${r.sales===''?'':r.sales}"></label>
+          <label>配達報酬（円）<input class="editSales" type="number" inputmode="numeric" value="${r.sales===''?'':r.sales}"></label>
         </div>
 
         <div class="row">
@@ -485,6 +491,9 @@ function renderBatchResults(rows){
           <label>分<input class="editMinutes" type="number" inputmode="numeric" min="0" max="59" value="${mins%60}"></label>
         </div>
 
+        <div class="muted" style="margin-top:5px">
+          合計 ${yen((+r.sales||0)+(+r.inc||0))}${r.total!==''?' ／ 画面 '+yen(r.total):''}
+        </div>
         <div class="rowWarn muted" style="${r.warning?'color:#b45309;font-weight:700':'color:#15803d'}">
           ${r.warning?'⚠️ '+r.warning:'✅ 登録できます'}
         </div>
@@ -492,7 +501,7 @@ function renderBatchResults(rows){
     }).join('')}
 
     <div class="actions" style="margin-top:10px">
-      <button class="btn primary" id="batchSaveBtn" type="button">確認できたデータ登録</button>
+      <button class="btn primary" id="batchSaveBtn" type="button">確認できたデータだけ登録</button>
       <button class="btn" id="batchClearBtn" type="button">取り込みをクリア</button>
     </div>
   </div>`;
@@ -502,6 +511,8 @@ function renderBatchResults(rows){
       syncEditableRows(rows);
       box.querySelectorAll('.batchRow').forEach(el=>{
         const i=+el.dataset.index, r=rows[i], warn=el.querySelector('.rowWarn');
+        const totalLine=warn.previousElementSibling;
+        if(totalLine) totalLine.textContent=`合計 ${yen((+r.sales||0)+(+r.inc||0))}${r.total!==''?' ／ 画面 '+yen(r.total):''}`;
         warn.textContent=r.warning?'⚠️ '+r.warning:'✅ 登録できます';
         warn.style.color=r.warning?'#b45309':'#15803d';
         warn.style.fontWeight=r.warning?'700':'400';
@@ -531,15 +542,19 @@ function sameDeliveryRecord(a,b){
 }
 
 function saveBatchRows(rows){
-  const selected=rows.filter(r=>r.checked);
-  const invalid=selected.filter(r=>validateEditableRow(r));
-  if(invalid.length){
-    $('batchInfo').textContent=`⚠️ ${invalid.length}件に確認が必要です。数字を直すか、登録しない行のチェックを外してください。`;
+  syncEditableRows(rows);
+
+  // チェック済みのうち、正常な行だけ登録する。
+  const valid=rows.filter(r=>r.checked && !validateEditableRow(r));
+  const invalid=rows.filter(r=>r.checked && validateEditableRow(r));
+
+  if(!valid.length){
+    $('batchInfo').textContent='⚠️ 登録できるデータがありません。要確認の数字を直すか、登録する行を確認してください。';
     return;
   }
 
   let added=0,replaced=0,skipped=0;
-  for(const q of selected){
+  for(const q of valid){
     const r={
       id:Date.now().toString()+'-'+Math.random().toString(36).slice(2,8),
       date:q.date,
@@ -557,6 +572,7 @@ function saveBatchRows(rows){
     const exact=state.rows.find(x=>x.date===r.date&&x.service===r.service&&
       (+x.baseSales||0)===r.baseSales&&(+x.incentive||0)===r.incentive&&
       (+x.minutes||0)===r.minutes&&(+x.trips||0)===r.trips);
+
     if(exact){skipped++;continue;}
 
     const sameDate=state.rows.find(x=>x.date===r.date&&x.service===r.service);
@@ -570,11 +586,23 @@ function saveBatchRows(rows){
       state.rows.push(r);
       added++;
     }
+
+    // 登録できた行はチェックを外して残す
+    q.checked=false;
   }
 
-  save();render();$('aiOutput').textContent=localAI();
-  $('batchInfo').textContent=`登録完了：新規${added}件・上書き${replaced}件・スキップ${skipped}件。`;
-  $('batchResults').innerHTML='';
+  save();
+  render();
+  $('aiOutput').textContent=localAI();
+
+  const msg=`登録完了：新規${added}件・上書き${replaced}件・スキップ${skipped}件`;
+  if(invalid.length){
+    $('batchInfo').textContent=`${msg}。要確認${invalid.length}件は未登録のまま残しています。`;
+    renderBatchResults(rows);
+  }else{
+    $('batchInfo').textContent=msg+'。';
+    $('batchResults').innerHTML='';
+  }
 }
 
 $('shotBtn').onclick=()=>{
@@ -592,7 +620,10 @@ $('shot').onchange=async e=>{
   const rows=[];
   for(let i=0;i<files.length;i++){
     const r=await ocrOneFile(files[i],i+1,files.length);
-    rows.push(makeBatchRow(r,i+1));
+    const row=makeBatchRow(r,i+1);
+    row.warning=validateEditableRow(row);
+    row.checked=!row.warning;
+    rows.push(row);
     renderBatchResults(rows);
     await new Promise(res=>setTimeout(res,80));
   }
@@ -601,17 +632,42 @@ $('shot').onchange=async e=>{
   $('ocrStatus').textContent=`一括OCR完了：${good}件の登録候補、${bad}件の要確認。`;
 };
 
+function moneyDigits(s){
+ const d=String(s||'').replace(/[^0-9]/g,'');
+ return d?+d:null;
+}
 function parseMoneyAfter(text,labels){
- const compact=text.replace(/[￥]/g,'¥').replace(/[ \t]+/g,' ');
+ const t=normalizeOcr(text);
+ const lines=t.split(/\n+/);
  for(const l of labels){
-  let re=new RegExp(l+'[^0-9¥]{0,28}¥?\\s*([0-9][0-9,]*)','i'),m=compact.match(re);
-  if(m)return +(m[1].replace(/,/g,''));
- } return null;
+   for(const line of lines){
+     if(!line.includes(l)) continue;
+     const after=line.slice(line.indexOf(l)+l.length);
+     // 4,334 / 4.334 / 4 334 / \4334 / ¥4334 を全部許容
+     const m=after.match(/[¥]?[ \t]*([0-9][0-9 \t,.]{0,15})/);
+     if(m){
+       const n=moneyDigits(m[1]);
+       if(n!=null) return n;
+     }
+   }
+ }
+ return null;
+}
+function parseTopUberAmount(text){
+ const t=normalizeOcr(text);
+ const h=t.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日?\s*[-–—~〜ー]\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?/);
+ if(!h) return null;
+ // 週見出し直後の最初の金額が、選択中の日/週の上部表示額
+ const seg=t.slice(h.index+h[0].length,h.index+h[0].length+180);
+ const m=seg.match(/¥[ \t]*([0-9][0-9 \t,.]{0,15})/);
+ return m?moneyDigits(m[1]):null;
 }
 function normalizeOcr(text){
  return String(text||'')
   .normalize('NFKC')
   .replace(/[￥]/g,'¥')
+  // Tesseractは円記号をバックスラッシュとして読むことがある
+  .replace(/\\(?=[ \t]*\d)/g,'¥')
   .replace(/\r/g,'')
   .replace(/[ \t]+/g,' ')
   .replace(/オ\s*ン\s*ラ\s*イ\s*ン/g,'オンライン')
@@ -624,25 +680,42 @@ function normalizeOcr(text){
 function extractUberFields(text){
  const t=normalizeOcr(text);
  let total=parseMoneyAfter(t,['売り上げ総額','売上総額']);
+ if(total==null) total=parseTopUberAmount(t);
+
  let net=parseMoneyAfter(t,['正味の料金','配達報酬']);
  let promo=parseMoneyAfter(t,['プロモーション','インセンティブ','クエスト']);
  let tip=parseMoneyAfter(t,['チップ']);
- let inc=promo;
- // Uberの日別詳細: 配達報酬欄には正味料金+チップ、インセンティブ欄にはプロモーション。
- // 合計がヘッダー総額と一致するようにする。
- let sales=null;
- if(net!=null) sales=net+(tip||0);
- else if(total!=null) sales=total-(promo||0);
- else sales=parseMoneyAfter(t,['売り上げ','売上','料金']);
+
+ let sales=null, inc=promo==null?0:promo;
+
+ // Delivery Pilotでは
+ // 配達報酬 = 正味の料金 + チップ
+ // インセンティブ = プロモーション
+ // 合計 = 配達報酬 + インセンティブ
+ if(total!=null && promo!=null){
+   // チップを読み損ねても、総額−プロモーションなら配達報酬を正しく復元できる
+   sales=Math.max(0,total-promo);
+   inc=promo;
+ }else if(total!=null && net!=null && tip!=null){
+   sales=net+tip;
+   inc=Math.max(0,total-sales);
+ }else if(total!=null && net!=null){
+   sales=net;
+   inc=Math.max(0,total-net);
+ }else if(total!=null){
+   sales=total;
+   inc=0;
+ }else if(net!=null){
+   sales=net+(tip||0);
+   inc=promo||0;
+ }
+
  let trips=null,hm=null;
 
- // 時間は「オンライン」を最優先。OCRでラベルが欠けても「3時間22分」の形なら拾う。
  let tm=t.match(/オンライン[\s\S]{0,80}?(\d{1,2})\s*時間\s*(\d{1,2})\s*分/i)
    ||t.match(/(\d{1,2})\s*時間\s*(\d{1,2})\s*分/i);
  if(tm) hm={h:+tm[1],m:+tm[2]};
 
- // 配達件数は「乗車」の同じ行/直後の値を最優先。
- // 「3時間22分」の22を件数として拾わないよう、時間表現を先に除外する。
  const noTime=t.replace(/\d{1,2}\s*時間\s*\d{1,2}\s*分/g,' ');
  const lines=noTime.split(/\n+/).map(x=>x.trim()).filter(Boolean);
  for(let i=0;i<lines.length && trips==null;i++){
@@ -660,8 +733,8 @@ function extractUberFields(text){
      ||noTime.match(/(\d{1,3})\s*(?:件|回)\b/i);
    if(qm && +qm[1]>0 && +qm[1]<300) trips=+qm[1];
  }
- // 「ポイント」の数字は配達件数の代用にはしない。
- return {sales,inc,trips,hm};
+
+ return {sales,inc,trips,hm,total,net,promo,tip};
 }
 
 function detectScreenshotPeriod(text){
@@ -751,8 +824,8 @@ $('refreshAppBtn').onclick=async()=>{
     }
   }catch(e){}
   const u=new URL(location.href);
-  u.searchParams.set('v','2.19');
-  u.searchParams.set('b','1791097656');
+  u.searchParams.set('v','2.21');
+  u.searchParams.set('b','1791098957');
   location.replace(u.toString());
 };
 
@@ -760,13 +833,13 @@ $('exportBtn').onclick=()=>{let blob=new Blob([JSON.stringify(state,null,2)],{ty
 $('importFile').onchange=async e=>{try{let o=JSON.parse(await e.target.files[0].text());if(!o||!Array.isArray(o.rows))throw 0;state=o;if(!state.goals)state.goals={today:+state.goal||15000,week:90000,month:450000,year:5400000,all:0};for(const r of state.rows){if(r.baseSales==null){r.baseSales=+r.sales||0;r.incentive=+r.incentive||0;r.incentiveType=r.incentiveType||'なし'}}delete state.goal;save();render();alert('バックアップを読み込みました')}catch{alert('バックアップファイルを読み込めませんでした')}};
 render();$('aiOutput').textContent=localAI();
 
-const APP_VERSION='v2.19';
-const APP_BUILD='1791097656';
+const APP_VERSION='v2.21';
+const APP_BUILD='1791098957';
 
 async function forceFreshServiceWorker(){
   if(!('serviceWorker' in navigator)) return;
   try{
-    const reg=await navigator.serviceWorker.register('./sw.js?v=2.19&b=1791097656',{updateViaCache:'none'});
+    const reg=await navigator.serviceWorker.register('./sw.js?v=2.21&b=1791098957',{updateViaCache:'none'});
     await reg.update();
     if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
     navigator.serviceWorker.addEventListener('controllerchange',()=>{
