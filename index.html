@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
-<title>Delivery Pilot v2.23 AI Web</title>
+<title>Delivery Pilot v2.24 AI Web</title>
 <link rel="manifest" href="manifest.json">
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f3f4f6}
@@ -25,7 +25,7 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 </style>
 </head>
 <body><main>
-<h1>Delivery Pilot <span class="muted">v2.23 AI</span></h1>
+<h1>Delivery Pilot <span class="muted">v2.24 AI</span></h1>
 <div class="muted">配達員向け スクショOCR・自動入力・AI稼働分析テスト版</div>
 <div id="updateStatus" class="muted" style="margin-top:6px">v2.19 / build 1791097656</div>
 
@@ -54,7 +54,7 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 <h2>目標</h2>
 <div class="row">
 <label><span id="goalLabel">今日の売上目標</span><input id="goal" type="number" inputmode="numeric" min="0"></label>
-<label>目標まであと<div id="remaining" class="goalBig">¥0</div></label>
+<label id="remainingWrap">目標まであと<div id="remaining" class="goalBig">¥0</div></label>
 </div>
 <div id="goalExtra" class="goalExtra" hidden>
   <div><span class="muted" id="daysLabel">残り日数</span><div id="daysRemaining" class="goalBig">0日</div></div>
@@ -188,7 +188,7 @@ function periodDaysRemaining(){
   const start = b.start>t ? b.start : t;
   return Math.floor((dateObj(b.end)-dateObj(start))/86400000)+1;
 }
-const goalNames={today:'1日の売上目標',week:'今週の売上目標',month:'今月の売上目標',year:'今年の売上目標',all:'累計の売上目標'};
+const goalNames={today:'1日の売上目標',week:'週間売上目標',month:'月間売上目標',year:'年間売上目標',all:'累計の売上目標'};
 function render(){
  let rows=filtered(),s=sum(rows),hr=s.minutes?s.sales/(s.minutes/60):0,baseHr=s.minutes?s.base/(s.minutes/60):0;
  const bounds=periodBounds();
@@ -198,8 +198,11 @@ function render(){
  $('mSales').textContent=yen(s.sales);$('mIncentive').textContent=yen(s.incentive);$('mExpense').textContent=yen(s.expense);$('mProfit').textContent=yen(s.sales-s.expense);$('mHourly').textContent=yen(hr);$('mTrips').textContent=s.trips+'件';
  $('baseBreakdown').textContent=`配達報酬 ${yen(s.base)} ／ インセンティブ除外時給 ${yen(baseHr)}`;
  $('goalLabel').textContent=goalNames[period];$('goal').value=state.goals[period]||0;
- let goal=+state.goals[period]||0, rem=Math.max(0,goal-s.sales);$('remaining').textContent=yen(rem);
- let days=periodDaysRemaining(), show=period!=='all'&&goal>0&&days>0;
+ let goal=+state.goals[period]||0, rem=Math.max(0,goal-s.sales);
+ const isPast=bounds.end<today();
+ $('remaining').textContent=yen(rem);
+ $('remainingWrap').hidden=isPast || period==='all';
+ let days=periodDaysRemaining(), show=period!=='all'&&goal>0&&days>0&&!isPast;
  $('goalExtra').hidden=!show;
  if(show){$('daysRemaining').textContent=days+'日';$('perDayNeeded').textContent=yen(days?rem/days:0)}
  let byInc={};rows.forEach(r=>{let k=(+r.incentive||0)>0?(r.incentiveType||'その他'):'なし';if(k!=='なし')byInc[k]=(byInc[k]||0)+(+r.incentive||0)});
@@ -447,6 +450,10 @@ function makeBatchRow(r, idx){
     index:idx,file:r.file,date,
     sales,inc,trips,minutes:mins,
     total:x.total==null?'':x.total,
+    net:x.net==null?'':x.net,
+    promo:x.promo==null?'':x.promo,
+    tip:x.tip==null?'':x.tip,
+    moneyReview:x.moneyReview||'',
     checked:false,
     text:r.text,
     warning:''
@@ -490,6 +497,7 @@ function validateEditableRow(r){
   const mins=+r.minutes||0;
   const total=r.total===''?null:(+r.total||0);
 
+  if(r.moneyReview) return r.moneyReview;
   if(!date) return '日付を入力してください';
   if(sales<=0) return '配達報酬を確認してください';
   if(trips<=0) return '件数を確認してください';
@@ -508,8 +516,10 @@ function syncEditableRows(rows){
     const i=+el.dataset.index, r=rows[i];
     r.checked=el.querySelector('.rowCheck').checked;
     r.date=el.querySelector('.editDate').value;
+    const prevSales=String(r.sales), prevInc=String(r.inc);
     r.sales=el.querySelector('.editSales').value;
     r.inc=el.querySelector('.editInc').value;
+    if(String(r.sales)!==prevSales || String(r.inc)!==prevInc) r.moneyReview='';
     r.trips=el.querySelector('.editTrips').value;
     const h=+el.querySelector('.editHours').value||0;
     const m=+el.querySelector('.editMinutes').value||0;
@@ -560,6 +570,7 @@ function renderBatchResults(rows){
 
         <div class="muted" style="margin-top:5px">
           合計 ${yen((+r.sales||0)+(+r.inc||0))}${r.total!==''?' ／ 画面 '+yen(r.total):''}
+          ${r.promo!==''?' ／ プロモーション '+yen(r.promo):''}${r.tip!==''?' ／ チップ '+yen(r.tip):''}
         </div>
         <div class="rowWarn muted" style="${r.warning?'color:#b45309;font-weight:700':'color:#15803d'}">
           ${r.warning?'⚠️ '+r.warning:'✅ 登録できます'}
@@ -579,7 +590,7 @@ function renderBatchResults(rows){
       box.querySelectorAll('.batchRow').forEach(el=>{
         const i=+el.dataset.index, r=rows[i], warn=el.querySelector('.rowWarn');
         const totalLine=warn.previousElementSibling;
-        if(totalLine) totalLine.textContent=`合計 ${yen((+r.sales||0)+(+r.inc||0))}${r.total!==''?' ／ 画面 '+yen(r.total):''}`;
+        if(totalLine) totalLine.textContent=`合計 ${yen((+r.sales||0)+(+r.inc||0))}${r.total!==''?' ／ 画面 '+yen(r.total):''}${r.promo!==''?' ／ プロモーション '+yen(r.promo):''}${r.tip!==''?' ／ チップ '+yen(r.tip):''}`;
         warn.textContent=r.warning?'⚠️ '+r.warning:'✅ 登録できます';
         warn.style.color=r.warning?'#b45309':'#15803d';
         warn.style.fontWeight=r.warning?'700':'400';
@@ -628,7 +639,8 @@ function saveBatchRows(rows){
       service:'Uber Eats',
       baseSales:+q.sales||0,
       incentive:+q.inc||0,
-      incentiveType:(+q.inc||0)>0?'その他':'なし',
+      incentiveType:(+q.inc||0)>0?'プロモーション':'なし',
+      ocrBreakdown:{total:q.total===''?null:+q.total,net:q.net===''?null:+q.net,promo:q.promo===''?null:+q.promo,tip:q.tip===''?null:+q.tip},
       expense:0,
       minutes:+q.minutes||0,
       trips:+q.trips||0,
@@ -754,27 +766,36 @@ function extractUberFields(text){
  let tip=parseMoneyAfter(t,['チップ']);
 
  let sales=null, inc=promo==null?0:promo;
+ let moneyReview='';
 
- // Delivery Pilotでは
+ // Delivery Pilotの固定ルール
  // 配達報酬 = 正味の料金 + チップ
- // インセンティブ = プロモーション
- // 合計 = 配達報酬 + インセンティブ
+ // インセンティブ = プロモーションのみ
+ // チップは絶対にインセンティブへ入れない
  if(total!=null && promo!=null){
-   // チップを読み損ねても、総額−プロモーションなら配達報酬を正しく復元できる
    sales=Math.max(0,total-promo);
    inc=promo;
- }else if(total!=null && net!=null && tip!=null){
-   sales=net+tip;
-   inc=Math.max(0,total-sales);
- }else if(total!=null && net!=null){
-   sales=net;
-   inc=Math.max(0,total-net);
+ }else if(total!=null && net!=null && promo==null){
+   const knownBase=net+(tip||0);
+   if(total===knownBase){
+     sales=knownBase;
+     inc=0;
+   }else{
+     // 差額があるのにプロモーションを読めていない。
+     // 差額を推測でインセンティブにせず、要確認へ送る。
+     sales=knownBase;
+     inc=0;
+     moneyReview=`金額内訳を確認してください（総額 ${yen(total)} / 正味+チップ ${yen(knownBase)}）`;
+   }
  }else if(total!=null){
+   // 内訳が取れない場合、総額は保存候補にするが要確認。
    sales=total;
    inc=0;
+   moneyReview='金額内訳を確認してください';
  }else if(net!=null){
    sales=net+(tip||0);
    inc=promo||0;
+   if(promo==null) inc=0;
  }
 
  let trips=null,hm=null;
@@ -790,8 +811,8 @@ function extractUberFields(text){
      let same=lines[i].match(/乗車[^0-9]{0,20}(\d{1,3})/);
      if(same && +same[1]>0 && +same[1]<300){ trips=+same[1]; break; }
      for(let j=i+1;j<=Math.min(i+2,lines.length-1);j++){
-       let m=lines[j].match(/^\D*(\d{1,3})\D*$/);
-       if(m && +m[1]>0 && +m[1]<300){ trips=+m[1]; break; }
+       let mm=lines[j].match(/^\D*(\d{1,3})\D*$/);
+       if(mm && +mm[1]>0 && +mm[1]<300){ trips=+mm[1]; break; }
      }
    }
  }
@@ -801,7 +822,7 @@ function extractUberFields(text){
    if(qm && +qm[1]>0 && +qm[1]<300) trips=+qm[1];
  }
 
- return {sales,inc,trips,hm,total,net,promo,tip};
+ return {sales,inc,trips,hm,total,net,promo,tip,moneyReview};
 }
 
 function detectScreenshotPeriod(text){
@@ -891,8 +912,8 @@ $('refreshAppBtn').onclick=async()=>{
     }
   }catch(e){}
   const u=new URL(location.href);
-  u.searchParams.set('v','2.23');
-  u.searchParams.set('b','1791100307');
+  u.searchParams.set('v','2.24');
+  u.searchParams.set('b','1791101231');
   location.replace(u.toString());
 };
 
@@ -900,13 +921,13 @@ $('exportBtn').onclick=()=>{let blob=new Blob([JSON.stringify(state,null,2)],{ty
 $('importFile').onchange=async e=>{try{let o=JSON.parse(await e.target.files[0].text());if(!o||!Array.isArray(o.rows))throw 0;state=o;if(!state.goals)state.goals={today:+state.goal||15000,week:90000,month:450000,year:5400000,all:0};for(const r of state.rows){if(r.baseSales==null){r.baseSales=+r.sales||0;r.incentive=+r.incentive||0;r.incentiveType=r.incentiveType||'なし'}}delete state.goal;save();render();alert('バックアップを読み込みました')}catch{alert('バックアップファイルを読み込めませんでした')}};
 render();$('aiOutput').textContent=localAI();
 
-const APP_VERSION='v2.23';
-const APP_BUILD='1791100307';
+const APP_VERSION='v2.24';
+const APP_BUILD='1791101231';
 
 async function forceFreshServiceWorker(){
   if(!('serviceWorker' in navigator)) return;
   try{
-    const reg=await navigator.serviceWorker.register('./sw.js?v=2.23&b=1791100307',{updateViaCache:'none'});
+    const reg=await navigator.serviceWorker.register('./sw.js?v=2.24&b=1791101231',{updateViaCache:'none'});
     await reg.update();
     if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
     navigator.serviceWorker.addEventListener('controllerchange',()=>{
