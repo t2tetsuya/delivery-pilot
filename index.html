@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
-<title>Delivery Pilot v2.5 AI Web</title>
+<title>Delivery Pilot v2.6 AI Web</title>
 <link rel="manifest" href="manifest.json">
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f3f4f6}
@@ -25,7 +25,7 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 </style>
 </head>
 <body><main>
-<h1>Delivery Pilot <span class="muted">v2.5 AI</span></h1>
+<h1>Delivery Pilot <span class="muted">v2.6 AI</span></h1>
 <div class="muted">配達員向け スクショOCR・自動入力・AI稼働分析テスト版</div>
 
 <div class="card">
@@ -152,7 +152,46 @@ function drawChart(){let c=$('chart'),ctx=c.getContext('2d');ctx.clearRect(0,0,c
 function editRow(id){let r=state.rows.find(x=>x.id===id);if(!r)return;editing=id;$('date').value=r.date;$('service').value=r.service;$('baseSales').value=r.baseSales;$('incentive').value=r.incentive||0;$('incentiveType').value=r.incentiveType||'なし';$('expense').value=r.expense;$('hours').value=Math.floor(r.minutes/60);$('minutes').value=r.minutes%60;$('trips').value=r.trips;$('slot').value=r.slot;$('area').value=r.area;$('cancelEdit').hidden=false;window.scrollTo({top:$('form').offsetTop-10,behavior:'smooth'})}
 function resetForm(){editing=null;$('form').reset();$('date').value=today();$('incentive').value=0;$('incentiveType').value='なし';$('expense').value=0;$('cancelEdit').hidden=true}
 $('cancelEdit').onclick=resetForm;
-$('form').onsubmit=e=>{e.preventDefault();let min=+$('hours').value*60 + +$('minutes').value;if(min<=0){$('msg').textContent='稼働時間を入力してください。';return}let inc=+$('incentive').value||0;let r={id:editing||Date.now().toString(),date:$('date').value,service:$('service').value,baseSales:+$('baseSales').value||0,incentive:inc,incentiveType:inc>0?$('incentiveType').value:'なし',expense:+$('expense').value||0,minutes:min,trips:+$('trips').value||0,slot:$('slot').value,area:$('area').value.trim()};if(editing){state.rows=state.rows.map(x=>x.id===editing?r:x)}else state.rows.push(r);save();resetForm();$('msg').textContent='保存しました。';render();$('aiOutput').textContent=localAI()};
+$('form').onsubmit=e=>{
+ e.preventDefault();
+ let min=+$('hours').value*60 + +$('minutes').value;
+ if(min<=0){$('msg').textContent='稼働時間を入力してください。';return}
+ let inc=+$('incentive').value||0;
+ let r={
+   id:editing||Date.now().toString(),
+   date:$('date').value,
+   service:$('service').value,
+   baseSales:+$('baseSales').value||0,
+   incentive:inc,
+   incentiveType:inc>0?$('incentiveType').value:'なし',
+   expense:+$('expense').value||0,
+   minutes:min,
+   trips:+$('trips').value||0,
+   slot:$('slot').value,
+   area:$('area').value.trim()
+ };
+
+ // 編集中の自分自身は除外して、同じ稼働の二重登録を防止。
+ const duplicate=(state.rows||[]).find(x=>
+   x.id!==editing &&
+   x.date===r.date &&
+   x.service===r.service &&
+   (+x.baseSales||0)===r.baseSales &&
+   (+x.incentive||0)===r.incentive &&
+   (+x.minutes||0)===r.minutes &&
+   (+x.trips||0)===r.trips
+ );
+ if(duplicate){
+   $('msg').textContent=`⚠️ この稼働はすでに登録済みです（${r.date}・${r.service}・${yen(r.baseSales+r.incentive)}・${Math.floor(r.minutes/60)}時間${r.minutes%60}分・${r.trips}件）。二重登録はしませんでした。`;
+   $('msg').style.color='#b45309';
+   window.scrollTo({top:$('form').offsetTop-10,behavior:'smooth'});
+   return;
+ }
+ $('msg').style.color='';
+ if(editing){state.rows=state.rows.map(x=>x.id===editing?r:x)}
+ else state.rows.push(r);
+ save();resetForm();$('msg').textContent='保存しました。';render();$('aiOutput').textContent=localAI();
+};if(editing){state.rows=state.rows.map(x=>x.id===editing?r:x)}else state.rows.push(r);save();resetForm();$('msg').textContent='保存しました。';render();$('aiOutput').textContent=localAI()};
 $('goal').onchange=()=>{state.goals[period]=Math.max(0,+$('goal').value||0);save();render()};
 document.querySelectorAll('#periodTabs button').forEach(b=>b.onclick=()=>{period=b.dataset.p;document.querySelectorAll('#periodTabs button').forEach(x=>x.classList.toggle('on',x===b));render()});
 $('shot').onchange=async e=>{
