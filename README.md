@@ -1,15 +1,16 @@
-# Delivery Pilot v2.2 AI Web
+# Delivery Pilot v2.3 AI
 
-iPhone Safari / GitHub Pages向け無料テスト版。
+iPhone Safari / GitHub Pages向けテスト版。
 
-## 主な機能
-- Uber等のスクリーンショット選択
-- Tesseract.js OCR（日本語＋英語）でiPhone Safariでも文字認識
-- 売上・配達件数・オンライン時間・インセンティブの自動抽出・入力
-- 今日 / 今週 / 今月 / 今年 / 累計の集計
-- インセンティブ込み・除外時給
-- 端末内AI稼働分析（時給、件単価、直近トレンド、時間帯・エリア、目標進捗）
+## v2.3
+- Uberスクリーンショット選択・プレビュー
+- OCR読み取り
+- Uber画面のキーワード周辺から売上・オンライン時間・配達件数を抽出
+- 入力欄へ自動反映
+- インセンティブ対応
+- 今日 / 今週 / 今月 / 今年 / 累計
+- AI稼働分析
 - JSONバックアップ
+- Service Workerキャッシュをv2.3へ更新
 
-初回OCR時は言語データ取得のため通信が必要です。
-OCR結果は誤認識する可能性があるため、保存前に数字を確認してください。
+GitHubへは index.html / manifest.json / README.md / sw.js の4ファイルをアップロードしてください。
