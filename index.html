@@ -25,7 +25,7 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 </style>
 </head>
 <body><main>
-<h1>Delivery Pilot <span class="muted">v2.12 AI</span></h1>
+<h1>Delivery Pilot <span class="muted">v2.13 AI</span></h1>
 <div class="muted">配達員向け スクショOCR・自動入力・AI稼働分析テスト版</div>
 
 <div class="card">
@@ -219,17 +219,31 @@ function detectSelectedUberDayIndex(img){
   try{
     const c=document.createElement('canvas'); c.width=img.naturalWidth; c.height=img.naturalHeight;
     const x=c.getContext('2d',{willReadFrequently:true}); x.drawImage(img,0,0);
-    const W=c.width,H=c.height, y0=Math.floor(H*.20), y1=Math.floor(H*.43), x0=Math.floor(W*.33), x1=Math.floor(W*.67);
-    const d=x.getImageData(x0,y0,x1-x0,y1-y0).data, counts=new Array(x1-x0).fill(0);
-    for(let yy=0;yy<y1-y0;yy++) for(let xx=0;xx<x1-x0;xx++){
-      const i=(yy*(x1-x0)+xx)*4,r=d[i],g=d[i+1],b=d[i+2];
-      if(b>165 && b>r*1.45 && b>g*1.12 && g>65) counts[xx]++;
+    const W=c.width,H=c.height;
+
+    // Uber週表示の曜日/日付列を広めに探索。端末サイズやUI差に耐えるよう固定範囲を緩和。
+    const x0=Math.floor(W*.08), x1=Math.floor(W*.92);
+    const y0=Math.floor(H*.12), y1=Math.floor(H*.46);
+    const d=x.getImageData(x0,y0,x1-x0,y1-y0).data;
+    const bins=new Array(7).fill(0);
+    const bw=(x1-x0)/7;
+
+    for(let yy=0;yy<y1-y0;yy++){
+      for(let xx=0;xx<x1-x0;xx++){
+        const i=(yy*(x1-x0)+xx)*4,r=d[i],g=d[i+1],b=d[i+2];
+        // Uber系の青を広めに判定
+        if(b>135 && b>r*1.25 && b>g*1.05 && (b-r)>45){
+          let bi=Math.max(0,Math.min(6,Math.floor(xx/bw)));
+          bins[bi]++;
+        }
+      }
     }
-    let best=0,bx=-1; for(let i=0;i<counts.length;i++) if(counts[i]>best){best=counts[i];bx=i;}
-    if(best<Math.max(8,H*.006)) return null;
-    const nx=(x0+bx)/W, centers=[.383,.422,.461,.500,.539,.578,.617];
-    let bi=0,dist=99; centers.forEach((v,i)=>{const q=Math.abs(nx-v);if(q<dist){dist=q;bi=i;}});
-    return dist<.035?bi:null;
+    let best=Math.max(...bins), bi=bins.indexOf(best);
+    let sorted=bins.slice().sort((a,b)=>b-a);
+    // 青がほぼ無い / 横並びに同程度で判定不能なら保留
+    if(best<Math.max(18,H*.01)) return null;
+    if(sorted[1] && best/sorted[1] < 1.12) return null;
+    return bi;
   }catch(e){return null;}
 }
 function selectedDateFromWeek(period,index){
@@ -275,7 +289,9 @@ async function ocrOneFile(f, index, total){
     const selectedIndex=p.type==='week'?detectSelectedUberDayIndex(img):null;
     const selectedDate=p.type==='week'?selectedDateFromWeek(p,selectedIndex):'';
     const x=extractUberFields(txt);
-    return {file:f.name,text:txt,period:p,selectedDate,fields:x,ok:true};
+    const lm=f.lastModified?new Date(f.lastModified):null;
+    const fileDate=lm&&!isNaN(lm)?`${lm.getFullYear()}-${String(lm.getMonth()+1).padStart(2,'0')}-${String(lm.getDate()).padStart(2,'0')}`:'';
+    return {file:f.name,text:txt,period:p,selectedDate,fileDate,fields:x,ok:true};
   }catch(err){
     return {file:f.name,text:'',period:{type:'unknown'},selectedDate:'',fields:{sales:null,inc:null,trips:null,hm:null},ok:false,error:String(err&&err.message?err.message:err)};
   }finally{
@@ -285,16 +301,24 @@ async function ocrOneFile(f, index, total){
 
 function makeBatchRow(r, idx){
   const x=r.fields||{};
-  const date=r.selectedDate||extractDateFromOcr(r.text)||'';
+  const ocrDate=extractDateFromOcr(r.text)||'';
+  const date=r.selectedDate||ocrDate||r.fileDate||'';
+  const dateSource=r.selectedDate?'週表示の青い選択日':(ocrDate?'画面OCR':(r.fileDate?'写真の日付候補':''));
   const sales=x.sales;
   const inc=x.inc;
   const trips=x.trips;
   const mins=x.hm?(x.hm.h*60+x.hm.m):0;
-  const status=r.ok && date && sales!=null && trips!=null && mins>0;
-  const reason=!r.ok?'OCRエラー':(!date?'日付を特定できません':(sales==null?'売上を特定できません':(trips==null?'件数を特定できません':(mins<=0?'オンライン時間を特定できません':''))));
+  const numericOk=r.ok && sales!=null && trips!=null && mins>0;
+  const status=numericOk && !!date;
+  let reason='';
+  if(!r.ok) reason='OCRエラー';
+  else if(!date) reason='日付だけ確認してください';
+  else if(sales==null) reason='売上を特定できません';
+  else if(trips==null) reason='件数を特定できません';
+  else if(mins<=0) reason='オンライン時間を特定できません';
   return {
-    index:idx,file:r.file,date,sales,inc:inc||0,trips,minutes:mins,
-    period:r.period,selectedDate:r.selectedDate,status,reason,text:r.text
+    index:idx,file:r.file,date,dateSource,sales,inc:inc||0,trips,minutes:mins,
+    period:r.period,selectedDate:r.selectedDate,status,numericOk,reason,text:r.text
   };
 }
 
@@ -313,19 +337,44 @@ function extractDateFromOcr(text){
 function renderBatchResults(rows){
   const box=$('batchResults');
   if(!rows.length){box.innerHTML='';return;}
+  const ready=rows.filter(r=>r.numericOk && r.date).length;
+  const needs=rows.length-ready;
   box.innerHTML=`<div class="card" style="margin:10px 0 0;padding:12px">
     <b>取り込み確認</b>
-    <div class="muted" style="margin:6px 0 10px">${rows.filter(r=>r.status).length}件登録候補 ／ ${rows.filter(r=>!r.status).length}件要確認</div>
+    <div class="muted" style="margin:6px 0 10px">${ready}件登録可能 ／ ${needs}件要確認</div>
     ${rows.map((r,i)=>`<div class="item" style="padding:10px 0">
       <b>${i+1}. ${r.file}</b>
-      <div class="muted">${r.status?'✅ '+r.date+'・売上 '+yen(r.sales)+'・インセンティブ '+yen(r.inc)+'・'+r.trips+'件・'+Math.floor(r.minutes/60)+'時間'+r.minutes%60+'分':'⚠️ '+r.reason}</div>
+      <label style="margin:7px 0 4px">日付
+        <input class="batchDate" data-index="${i}" type="date" value="${r.date||''}">
+      </label>
+      <div class="muted">
+        ${r.numericOk
+          ?`${r.date?'✅':'⚠️'} 売上 ${yen(r.sales)}・インセンティブ ${yen(r.inc)}・${r.trips}件・${Math.floor(r.minutes/60)}時間${r.minutes%60}分${r.dateSource?' ／ 日付候補: '+r.dateSource:''}`
+          :'⚠️ '+r.reason}
+      </div>
     </div>`).join('')}
     <div class="actions" style="margin-top:10px">
-      <button class="btn primary" id="batchSaveBtn" type="button" ${rows.some(r=>r.status)?'':'disabled'}>確認できたデータをまとめて登録</button>
+      <button class="btn primary" id="batchSaveBtn" type="button">確認できたデータをまとめて登録</button>
       <button class="btn" id="batchClearBtn" type="button">取り込みをクリア</button>
     </div>
   </div>`;
-  $('batchSaveBtn').onclick=()=>saveBatchRows(rows);
+
+  document.querySelectorAll('.batchDate').forEach(inp=>{
+    inp.onchange=()=>{
+      const i=+inp.dataset.index;
+      rows[i].date=inp.value;
+      rows[i].status=!!(rows[i].numericOk && rows[i].date);
+    };
+  });
+
+  $('batchSaveBtn').onclick=()=>{
+    document.querySelectorAll('.batchDate').forEach(inp=>{
+      const i=+inp.dataset.index;
+      rows[i].date=inp.value;
+      rows[i].status=!!(rows[i].numericOk && rows[i].date);
+    });
+    saveBatchRows(rows);
+  };
   $('batchClearBtn').onclick=()=>{
     $('batchResults').innerHTML='';
     $('batchInfo').textContent='取り込みをクリアしました。';
@@ -528,7 +577,7 @@ render();$('aiOutput').textContent=localAI();
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      const reg = await navigator.serviceWorker.register('./sw.js?v=2.12', {updateViaCache:'none'});
+      const reg = await navigator.serviceWorker.register('./sw.js?v=2.13', {updateViaCache:'none'});
       await reg.update();
     } catch(e) { console.log('SW update', e); }
   });
