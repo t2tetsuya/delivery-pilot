@@ -1,8 +1,8 @@
 {
-  "name": "Delivery Pilot v2.22 AI",
+  "name": "Delivery Pilot v2.23 AI",
   "short_name": "Delivery Pilot",
   "id": "./",
-  "start_url": "./index.html?v=2.22&b=1791099463",
+  "start_url": "./index.html?v=2.23&b=1791100307",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f3f4f6",

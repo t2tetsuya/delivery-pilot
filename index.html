@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
-<title>Delivery Pilot v2.22 AI Web</title>
+<title>Delivery Pilot v2.23 AI Web</title>
 <link rel="manifest" href="manifest.json">
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f3f4f6}
@@ -15,7 +15,7 @@ h1{font-size:24px;margin:6px 0}h2{font-size:17px;margin:0 0 12px}.muted{color:#6
 label{display:block;font-size:13px;margin:9px 0}input,select{width:100%;font-size:16px;padding:12px;border:1px solid #d1d5db;border-radius:10px;background:white}
 .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions .btn{flex:1;min-width:120px}
 .item{border-top:1px solid #eee;padding:10px 0}.item:first-child{border-top:0}.right{float:right}.good{font-weight:700}
-.goalBig{font-size:24px;font-weight:700;margin-top:10px}.goalExtra{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid #eee}
+.goalBig{font-size:24px;font-weight:700;margin-top:10px}.goalExtra{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid #eee}.goalExtra[hidden]{display:none!important}
 img#preview{width:100%;max-height:260px;object-fit:contain;border-radius:12px;margin-top:10px}
 canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 @media(min-width:650px){.grid{grid-template-columns:repeat(6,1fr)}}
@@ -25,13 +25,13 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 </style>
 </head>
 <body><main>
-<h1>Delivery Pilot <span class="muted">v2.22 AI</span></h1>
+<h1>Delivery Pilot <span class="muted">v2.23 AI</span></h1>
 <div class="muted">配達員向け スクショOCR・自動入力・AI稼働分析テスト版</div>
 <div id="updateStatus" class="muted" style="margin-top:6px">v2.19 / build 1791097656</div>
 
 <div class="card">
   <div class="tabs" id="periodTabs">
-    <button data-p="today" class="on">今日</button><button data-p="week">今週</button><button data-p="month">今月</button><button data-p="year">今年</button><button data-p="all">累計</button>
+    <button data-p="today" class="on">日別</button><button data-p="week">今週</button><button data-p="month">今月</button><button data-p="year">今年</button><button data-p="all">累計</button>
   </div>
   <div class="actions" style="margin-top:10px">
     <button class="btn" id="periodPrev" type="button">← 前へ</button>
@@ -188,13 +188,13 @@ function periodDaysRemaining(){
   const start = b.start>t ? b.start : t;
   return Math.floor((dateObj(b.end)-dateObj(start))/86400000)+1;
 }
-const goalNames={today:'今日の売上目標',week:'今週の売上目標',month:'今月の売上目標',year:'今年の売上目標',all:'累計の売上目標'};
+const goalNames={today:'1日の売上目標',week:'今週の売上目標',month:'今月の売上目標',year:'今年の売上目標',all:'累計の売上目標'};
 function render(){
  let rows=filtered(),s=sum(rows),hr=s.minutes?s.sales/(s.minutes/60):0,baseHr=s.minutes?s.base/(s.minutes/60):0;
  const bounds=periodBounds();
- $('periodRangeLabel').textContent=`表示期間：${bounds.label}`;
+ $('periodRangeLabel').textContent=`表示期間：${bounds.label}${bounds.end<today()?'（過去）':''}`;
  $('periodPrev').disabled=period==='all';
- $('periodNext').disabled=period==='all';
+ $('periodNext').disabled=period==='all' || bounds.end>=today();
  $('mSales').textContent=yen(s.sales);$('mIncentive').textContent=yen(s.incentive);$('mExpense').textContent=yen(s.expense);$('mProfit').textContent=yen(s.sales-s.expense);$('mHourly').textContent=yen(hr);$('mTrips').textContent=s.trips+'件';
  $('baseBreakdown').textContent=`配達報酬 ${yen(s.base)} ／ インセンティブ除外時給 ${yen(baseHr)}`;
  $('goalLabel').textContent=goalNames[period];$('goal').value=state.goals[period]||0;
@@ -208,12 +208,13 @@ function render(){
  $('services').innerHTML=Object.entries(bySvc).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="item">${k}<b class="right">${yen(v)}</b></div>`).join('')||'<div class="muted">データなし</div>';
  let groups={};rows.forEach(r=>{let k=(r.slot||'未設定')+' / '+(r.area||'エリア未設定');let g=groups[k]||{sales:0,min:0,trips:0};g.sales+=totalSales(r);g.min+=+r.minutes||0;g.trips+=+r.trips||0;groups[k]=g});
  $('analysis').innerHTML=Object.entries(groups).map(([k,g])=>`<div class="item"><b>${k}</b><div class="muted">売上 ${yen(g.sales)}・時給 ${yen(g.min?g.sales/(g.min/60):0)}・${g.trips}件</div></div>`).join('')||'<div class="muted">データなし</div>';
- $('history').innerHTML=state.rows.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(r=>`<div class="item"><b>${r.date} ${r.service}</b><span class="right">${yen(totalSales(r))}</span><div class="muted">${Math.floor(r.minutes/60)}時間${r.minutes%60}分・${r.trips}件・配達報酬 ${yen(r.baseSales)}・インセンティブ ${yen(r.incentive)}${(+r.incentive||0)>0?'（'+(r.incentiveType||'その他')+'）':''}・経費 ${yen(r.expense)}・${r.slot}${r.area?'・'+r.area:''}</div><div class="actions" style="margin-top:7px"><button class="btn edit" data-id="${r.id}" type="button">編集</button><button class="btn del" data-id="${r.id}" type="button">削除</button></div></div>`).join('');
+ $('history').innerHTML=rows.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(r=>`<div class="item"><b>${r.date} ${r.service}</b><span class="right">${yen(totalSales(r))}</span><div class="muted">${Math.floor(r.minutes/60)}時間${r.minutes%60}分・${r.trips}件・配達報酬 ${yen(r.baseSales)}・インセンティブ ${yen(r.incentive)}${(+r.incentive||0)>0?'（'+(r.incentiveType||'その他')+'）':''}・経費 ${yen(r.expense)}・${r.slot}${r.area?'・'+r.area:''}</div><div class="actions" style="margin-top:7px"><button class="btn edit" data-id="${r.id}" type="button">編集</button><button class="btn del" data-id="${r.id}" type="button">削除</button></div></div>`).join('')||'<div class="muted">この期間の履歴はありません</div>';
  drawChart();document.querySelectorAll('.edit').forEach(b=>b.onclick=()=>editRow(b.dataset.id));document.querySelectorAll('.del').forEach(b=>b.onclick=()=>{if(confirm('この記録を削除しますか？')){state.rows=state.rows.filter(r=>r.id!==b.dataset.id);save();render()}});
 }
 function drawChart(){
   const c=$('chart'),ctx=c.getContext('2d');
   ctx.clearRect(0,0,c.width,c.height);
+
   const d={};
   filtered().forEach(r=>d[r.date]=(d[r.date]||0)+totalSales(r));
   const arr=Object.entries(d).sort();
@@ -225,38 +226,36 @@ function drawChart(){
     return;
   }
 
-  // 月/年/累計は件数が多くても全期間を反映。ラベルだけ間引く。
   const max=Math.max(...arr.map(x=>x[1]),1);
-  const padL=42,padR=14,padT=12,padB=30;
+  const padL=44,padR=14,padT=18,padB=34;
   const plotW=c.width-padL-padR, plotH=c.height-padT-padB;
-  const step=arr.length>1?plotW/(arr.length-1):0;
+  const slot=plotW/arr.length;
+  const barW=Math.max(16,Math.min(46,slot*.62));
 
   ctx.strokeStyle='#d1d5db';
-  ctx.beginPath(); ctx.moveTo(padL,padT+plotH); ctx.lineTo(c.width-padR,padT+plotH); ctx.stroke();
+  ctx.beginPath();ctx.moveTo(padL,padT+plotH);ctx.lineTo(c.width-padR,padT+plotH);ctx.stroke();
 
-  ctx.strokeStyle='#374151';
-  ctx.lineWidth=2;
-  ctx.beginPath();
-  arr.forEach(([date,v],i)=>{
-    const x=arr.length===1?padL+plotW/2:padL+i*step;
-    const y=padT+plotH-(v/max)*plotH;
-    if(i===0)ctx.moveTo(x,y); else ctx.lineTo(x,y);
-  });
-  ctx.stroke();
-
-  ctx.fillStyle='#111827';
-  arr.forEach(([date,v],i)=>{
-    const x=arr.length===1?padL+plotW/2:padL+i*step;
-    const y=padT+plotH-(v/max)*plotH;
-    ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill();
-  });
-
-  ctx.fillStyle='#6b7280';
   const labelEvery=Math.max(1,Math.ceil(arr.length/7));
-  arr.forEach(([date],i)=>{
-    if(i%labelEvery!==0 && i!==arr.length-1)return;
-    const x=arr.length===1?padL+plotW/2:padL+i*step;
-    ctx.fillText(date.slice(5).replace('-','/'),Math.max(2,x-14),c.height-8);
+
+  arr.forEach(([date,v],i)=>{
+    const h=Math.max(3,(v/max)*plotH);
+    const x=padL+i*slot+(slot-barW)/2;
+    const y=padT+plotH-h;
+
+    ctx.fillStyle='#374151';
+    ctx.fillRect(x,y,barW,h);
+
+    // one/few bars: show value directly
+    if(arr.length<=7){
+      ctx.fillStyle='#111827';
+      const label=yen(v);
+      ctx.fillText(label,Math.max(2,x-2),Math.max(12,y-5));
+    }
+
+    if(i%labelEvery===0 || i===arr.length-1){
+      ctx.fillStyle='#6b7280';
+      ctx.fillText(date.slice(5).replace('-','/'),Math.max(2,x-2),c.height-10);
+    }
   });
 };
 $('goal').onchange=()=>{state.goals[period]=Math.max(0,+$('goal').value||0);save();render()};
@@ -531,7 +530,10 @@ function renderBatchResults(rows){
     <div class="muted" style="margin:6px 0 10px">
       数字が違う場合は、この画面で直接直してから登録できます。
     </div>
-    <div class="muted" style="margin-bottom:10px">${ready}件登録可能 ／ ${needs}件要確認</div>
+    <div class="muted" style="margin-bottom:10px">
+      ${ready}件登録対象 ／ ${rows.filter(r=>!!r.warning).length}件要確認
+      ${rows.filter(r=>!r.checked && !!r.warning).length?`（要確認は自動でチェックを外しています）`:''}
+    </div>
 
     ${rows.map((r,i)=>{
       const mins=+r.minutes||0;
@@ -889,8 +891,8 @@ $('refreshAppBtn').onclick=async()=>{
     }
   }catch(e){}
   const u=new URL(location.href);
-  u.searchParams.set('v','2.22');
-  u.searchParams.set('b','1791099463');
+  u.searchParams.set('v','2.23');
+  u.searchParams.set('b','1791100307');
   location.replace(u.toString());
 };
 
@@ -898,13 +900,13 @@ $('exportBtn').onclick=()=>{let blob=new Blob([JSON.stringify(state,null,2)],{ty
 $('importFile').onchange=async e=>{try{let o=JSON.parse(await e.target.files[0].text());if(!o||!Array.isArray(o.rows))throw 0;state=o;if(!state.goals)state.goals={today:+state.goal||15000,week:90000,month:450000,year:5400000,all:0};for(const r of state.rows){if(r.baseSales==null){r.baseSales=+r.sales||0;r.incentive=+r.incentive||0;r.incentiveType=r.incentiveType||'なし'}}delete state.goal;save();render();alert('バックアップを読み込みました')}catch{alert('バックアップファイルを読み込めませんでした')}};
 render();$('aiOutput').textContent=localAI();
 
-const APP_VERSION='v2.22';
-const APP_BUILD='1791099463';
+const APP_VERSION='v2.23';
+const APP_BUILD='1791100307';
 
 async function forceFreshServiceWorker(){
   if(!('serviceWorker' in navigator)) return;
   try{
-    const reg=await navigator.serviceWorker.register('./sw.js?v=2.22&b=1791099463',{updateViaCache:'none'});
+    const reg=await navigator.serviceWorker.register('./sw.js?v=2.23&b=1791100307',{updateViaCache:'none'});
     await reg.update();
     if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
     navigator.serviceWorker.addEventListener('controllerchange',()=>{
