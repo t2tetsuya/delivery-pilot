@@ -25,7 +25,7 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 </style>
 </head>
 <body><main>
-<h1>Delivery Pilot <span class="muted">v2.11 AI</span></h1>
+<h1>Delivery Pilot <span class="muted">v2.12 AI</span></h1>
 <div class="muted">配達員向け スクショOCR・自動入力・AI稼働分析テスト版</div>
 
 <div class="card">
@@ -58,11 +58,13 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 <div class="card">
 <h2>Uberスクショ → 自動登録</h2>
 <div class="muted">Uber Driver等の売上スクショを選ぶだけでOCRを実行し、売上・件数・オンライン時間・インセンティブを自動抽出して入力欄へ反映します。保存前に数字を確認できます。</div>
-<button class="btn primary" id="shotBtn" type="button" style="display:block;width:100%;text-align:center;margin-top:12px">スクショを選択</button>
-<input id="shot" type="file" accept="image/*,.png,.jpg,.jpeg,.webp" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" aria-label="スクリーンショットを選択">
-<img id="preview" hidden alt="選択したスクリーンショット">
+<button class="btn primary" id="shotBtn" type="button" style="display:block;width:100%;text-align:center;margin-top:12px">スクショをまとめて選択</button>
+<input id="shot" type="file" accept="image/*,.png,.jpg,.jpeg,.webp" multiple style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" aria-label="スクリーンショットを複数選択">
+<div id="batchInfo" class="muted" style="margin-top:10px;padding:10px;border:1px solid #d1d5db;border-radius:10px">1日分でも1か月分でも、複数のスクショをまとめて選択できます。</div>
+<div id="batchPreview" style="margin-top:10px"></div>
 <div id="shotPeriodNotice" class="muted" style="display:none;margin-top:10px;padding:10px;border:1px solid #d1d5db;border-radius:10px"></div>
 <div id="ocrStatus" class="muted" style="margin-top:8px"></div>
+<div id="batchResults" style="margin-top:10px"></div>
 <textarea id="ocrText" placeholder="OCR結果 / またはスクショ内の文字を貼り付け" style="width:100%;min-height:110px;margin-top:10px;padding:10px;border:1px solid #d1d5db;border-radius:10px"></textarea>
 <div class="actions" style="margin-top:8px"><button class="btn" id="parseOcr" type="button">読み取り結果を入力欄へ反映</button></div>
 </div>
@@ -239,67 +241,149 @@ function selectedDateFromWeek(period,index){
   const d=new Date(y,sm-1,sd); d.setDate(d.getDate()+index);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
-$('shot').onchange=async e=>{
- let f=e.target.files[0];if(!f)return;
- let u=URL.createObjectURL(f);$('preview').src=u;$('preview').hidden=false;
- $('ocrStatus').textContent='OCRを準備しています…';$('ocrText').value='';$('shotPeriodNotice').style.display='none';$('shotPeriodNotice').textContent='';
- try{
-   if(!window.Tesseract) throw new Error('OCRライブラリを読み込めませんでした');
-   $('ocrStatus').textContent='スクショ全体を読み取り中…';
-   const full=await Tesseract.recognize(f,'jpn+eng',{logger:m=>{
-     if(m.status==='recognizing text') $('ocrStatus').textContent=`全体OCR… ${Math.round((m.progress||0)*100)}%`;
-   }});
-   let fullText=(full.data&&full.data.text)||'';
+async function ocrOneFile(f, index, total){
+  const u=URL.createObjectURL(f);
+  try{
+    $('ocrStatus').textContent=`${index}/${total}枚目をOCR中…`;
+    const full=await Tesseract.recognize(f,'jpn+eng',{logger:m=>{
+      if(m.status==='recognizing text'){
+        $('ocrStatus').textContent=`${index}/${total}枚目 OCR… ${Math.round((m.progress||0)*100)}%`;
+      }
+    }});
+    let fullText=(full.data&&full.data.text)||'';
+    const img=await new Promise((resolve,reject)=>{
+      const im=new Image(); im.onload=()=>resolve(im); im.onerror=reject; im.src=u;
+    });
+    const crop=document.createElement('canvas');
+    const sy=Math.floor(img.naturalHeight*0.36);
+    const sh=Math.floor(img.naturalHeight*0.34);
+    const scale=2;
+    crop.width=img.naturalWidth*scale; crop.height=sh*scale;
+    const ctx=crop.getContext('2d',{willReadFrequently:true});
+    ctx.drawImage(img,0,sy,img.naturalWidth,sh,0,0,crop.width,crop.height);
+    const data=ctx.getImageData(0,0,crop.width,crop.height);
+    for(let i=0;i<data.data.length;i+=4){
+      const y=.299*data.data[i]+.587*data.data[i+1]+.114*data.data[i+2];
+      const v=y>190?255:y<95?0:Math.max(0,Math.min(255,(y-128)*2.2+128));
+      data.data[i]=data.data[i+1]=data.data[i+2]=v;
+    }
+    ctx.putImageData(data,0,0);
+    const stat=await Tesseract.recognize(crop,'jpn+eng');
+    let statText=(stat.data&&stat.data.text)||'';
+    const txt=fullText+'\n\n--- 統計欄（拡大OCR） ---\n'+statText;
+    const p=detectScreenshotPeriod(txt);
+    const selectedIndex=p.type==='week'?detectSelectedUberDayIndex(img):null;
+    const selectedDate=p.type==='week'?selectedDateFromWeek(p,selectedIndex):'';
+    const x=extractUberFields(txt);
+    return {file:f.name,text:txt,period:p,selectedDate,fields:x,ok:true};
+  }catch(err){
+    return {file:f.name,text:'',period:{type:'unknown'},selectedDate:'',fields:{sales:null,inc:null,trips:null,hm:null},ok:false,error:String(err&&err.message?err.message:err)};
+  }finally{
+    URL.revokeObjectURL(u);
+  }
+}
 
-   // Uberの「統計」付近を別途拡大・高コントラスト化して再OCRする。
-   const img=await new Promise((resolve,reject)=>{
-     const im=new Image(); im.onload=()=>resolve(im); im.onerror=reject; im.src=u;
-   });
-   const crop=document.createElement('canvas');
-   const sy=Math.floor(img.naturalHeight*0.36);
-   const sh=Math.floor(img.naturalHeight*0.34);
-   const scale=2;
-   crop.width=img.naturalWidth*scale; crop.height=sh*scale;
-   const ctx=crop.getContext('2d',{willReadFrequently:true});
-   ctx.drawImage(img,0,sy,img.naturalWidth,sh,0,0,crop.width,crop.height);
-   const data=ctx.getImageData(0,0,crop.width,crop.height);
-   for(let i=0;i<data.data.length;i+=4){
-     const y=.299*data.data[i]+.587*data.data[i+1]+.114*data.data[i+2];
-     const v=y>190?255:y<95?0:Math.max(0,Math.min(255,(y-128)*2.2+128));
-     data.data[i]=data.data[i+1]=data.data[i+2]=v;
-   }
-   ctx.putImageData(data,0,0);
-   $('ocrStatus').textContent='統計欄を拡大して再読み取り中…';
-   const stat=await Tesseract.recognize(crop,'jpn+eng',{logger:m=>{
-     if(m.status==='recognizing text') $('ocrStatus').textContent=`統計欄OCR… ${Math.round((m.progress||0)*100)}%`;
-   }});
-   let statText=(stat.data&&stat.data.text)||'';
-   let txt=fullText+'\n\n--- 統計欄（拡大OCR） ---\n'+statText;
-   $('ocrText').value=txt;
-   const shotPeriod=detectScreenshotPeriod(txt);
-   const selectedIndex=shotPeriod.type==='week'?detectSelectedUberDayIndex(img):null;
-   selectedScreenshotDate=selectedDateFromWeek(shotPeriod,selectedIndex);
-   const found=applyOcrText(txt,true);
-   if(shotPeriod.type==='week' && selectedScreenshotDate){
-     $('date').value=selectedScreenshotDate; setScreenshotBlocked(false);
-     const box=$('shotPeriodNotice'); box.style.display='block';
-     box.textContent=`✅ 週表示内の選択日 ${selectedScreenshotDate.replaceAll('-','/')} を検出しました。この1日分として登録できます。`;
-   }else if(shotPeriod.type==='week'){
-     clearDailyOcrFields(); setScreenshotBlocked(true);
-     const box=$('shotPeriodNotice'); box.style.display='block';
-     box.textContent=`⚠️ 週表示（${shotPeriod.label}）は検出しましたが、選択日を特定できませんでした。誤登録防止のため入力と保存を無効にしました。`;
-   }else{ setScreenshotBlocked(false); updateScreenshotPeriodNotice(txt); }
-   const x=extractUberFields(txt);
-   const parts=[];
-   if(x.sales!=null) parts.push(`売上 ${yen(x.sales)}`);
-   if(x.hm) parts.push(`稼働 ${x.hm.h}時間${x.hm.m}分`);
-   if(x.trips!=null) parts.push(`配達 ${x.trips}件`);
-   $('ocrStatus').textContent=found
-     ?`OCR完了。${parts.join('／')} を検出しました。${selectedScreenshotDate?'選択日のデータとして入力しました。':'保存前に数字を確認してください。'}`
-     :'OCRは完了しましたが、自動抽出できない項目があります。';
- }catch(err){
-   $('ocrStatus').textContent='OCRエラー: '+(err&&err.message?err.message:String(err));
- }
+function makeBatchRow(r, idx){
+  const x=r.fields||{};
+  const date=r.selectedDate||extractDateFromOcr(r.text)||'';
+  const sales=x.sales;
+  const inc=x.inc;
+  const trips=x.trips;
+  const mins=x.hm?(x.hm.h*60+x.hm.m):0;
+  const status=r.ok && date && sales!=null && trips!=null && mins>0;
+  const reason=!r.ok?'OCRエラー':(!date?'日付を特定できません':(sales==null?'売上を特定できません':(trips==null?'件数を特定できません':(mins<=0?'オンライン時間を特定できません':''))));
+  return {
+    index:idx,file:r.file,date,sales,inc:inc||0,trips,minutes:mins,
+    period:r.period,selectedDate:r.selectedDate,status,reason,text:r.text
+  };
+}
+
+function extractDateFromOcr(text){
+  const t=normalizeOcr(text);
+  let m=t.match(/(20\d{2})[\/\-年]\s*(\d{1,2})[\/\-月]\s*(\d{1,2})日?/);
+  if(m)return `${m[1]}-${String(+m[2]).padStart(2,'0')}-${String(+m[3]).padStart(2,'0')}`;
+  m=t.match(/(\d{1,2})月\s*(\d{1,2})日/);
+  if(m){
+    const now=new Date(), y=now.getFullYear();
+    return `${y}-${String(+m[1]).padStart(2,'0')}-${String(+m[2]).padStart(2,'0')}`;
+  }
+  return '';
+}
+
+function renderBatchResults(rows){
+  const box=$('batchResults');
+  if(!rows.length){box.innerHTML='';return;}
+  box.innerHTML=`<div class="card" style="margin:10px 0 0;padding:12px">
+    <b>取り込み確認</b>
+    <div class="muted" style="margin:6px 0 10px">${rows.filter(r=>r.status).length}件登録候補 ／ ${rows.filter(r=>!r.status).length}件要確認</div>
+    ${rows.map((r,i)=>`<div class="item" style="padding:10px 0">
+      <b>${i+1}. ${r.file}</b>
+      <div class="muted">${r.status?'✅ '+r.date+'・売上 '+yen(r.sales)+'・インセンティブ '+yen(r.inc)+'・'+r.trips+'件・'+Math.floor(r.minutes/60)+'時間'+r.minutes%60+'分':'⚠️ '+r.reason}</div>
+    </div>`).join('')}
+    <div class="actions" style="margin-top:10px">
+      <button class="btn primary" id="batchSaveBtn" type="button" ${rows.some(r=>r.status)?'':'disabled'}>確認できたデータをまとめて登録</button>
+      <button class="btn" id="batchClearBtn" type="button">取り込みをクリア</button>
+    </div>
+  </div>`;
+  $('batchSaveBtn').onclick=()=>saveBatchRows(rows);
+  $('batchClearBtn').onclick=()=>{
+    $('batchResults').innerHTML='';
+    $('batchInfo').textContent='取り込みをクリアしました。';
+  };
+}
+
+function saveBatchRows(rows){
+  const candidates=rows.filter(r=>r.status);
+  let added=0, replaced=0, skipped=0;
+  for(const q of candidates){
+    const r={
+      id:Date.now().toString()+'-'+Math.random().toString(36).slice(2,8),
+      date:q.date,service:'Uber Eats',
+      baseSales:+q.sales||0,incentive:+q.inc||0,
+      incentiveType:(+q.inc||0)>0?'その他':'なし',
+      expense:0,minutes:+q.minutes||0,trips:+q.trips||0,
+      slot:'朝',area:''
+    };
+    // Exact duplicate = skip. Same date/service but different values = replace only after user confirmation.
+    const exact=state.rows.find(x=>x.date===r.date&&x.service===r.service&&
+      (+x.baseSales||0)===r.baseSales&&(+x.incentive||0)===r.incentive&&
+      (+x.minutes||0)===r.minutes&&(+x.trips||0)===r.trips);
+    if(exact){skipped++;continue;}
+    const sameDate=state.rows.find(x=>x.date===r.date&&x.service===r.service);
+    if(sameDate){
+      const ok=confirm(`${r.date}のUberデータは既に登録されています。\n既存データを今回の読み取り結果で上書きしますか？`);
+      if(ok){state.rows=state.rows.map(x=>x.id===sameDate.id?{...r,id:x.id}:x);replaced++;}
+      else skipped++;
+    }else{
+      state.rows.push(r);added++;
+    }
+  }
+  save();render();$('aiOutput').textContent=localAI();
+  $('batchInfo').textContent=`一括登録完了：新規${added}件・上書き${replaced}件・スキップ${skipped}件。`;
+  $('batchResults').innerHTML='';
+}
+
+$('shotBtn').onclick=()=>{
+  const input=$('shot');
+  input.value='';
+  input.click();
+};
+
+$('shot').onchange=async e=>{
+  const files=Array.from(e.target.files||[]);
+  if(!files.length)return;
+  $('batchInfo').textContent=`${files.length}枚を選択しました。1枚ずつOCRして日付・売上・件数・オンライン時間を確認します。`;
+  $('batchPreview').innerHTML=files.slice(0,12).map((f,i)=>`<span class="badge">${i+1}. ${f.name}</span>`).join('')+(files.length>12?` <span class="badge">…ほか${files.length-12}枚</span>`:'');
+  $('batchResults').innerHTML='';
+  const rows=[];
+  for(let i=0;i<files.length;i++){
+    const r=await ocrOneFile(files[i],i+1,files.length);
+    rows.push(makeBatchRow(r,i+1));
+    renderBatchResults(rows);
+  }
+  const good=rows.filter(r=>r.status).length,bad=rows.length-good;
+  $('batchInfo').textContent=`OCR完了：${files.length}枚。登録候補 ${good}件／要確認 ${bad}件。確認できたものだけ一括登録できます。`;
+  $('ocrStatus').textContent=`一括OCR完了：${good}件の登録候補、${bad}件の要確認。`;
 };
 
 function parseMoneyAfter(text,labels){
@@ -444,7 +528,7 @@ render();$('aiOutput').textContent=localAI();
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      const reg = await navigator.serviceWorker.register('./sw.js?v=2.11', {updateViaCache:'none'});
+      const reg = await navigator.serviceWorker.register('./sw.js?v=2.12', {updateViaCache:'none'});
       await reg.update();
     } catch(e) { console.log('SW update', e); }
   });

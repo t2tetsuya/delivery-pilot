@@ -1,9 +1,9 @@
 {
-  "name": "Delivery Pilot v2.11 AI",
+  "name": "Delivery Pilot v2.12 AI",
   "short_name": "Delivery Pilot",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#f3f4f6",
   "theme_color": "#111827",
-  "lang": "ja"
+  "icons": []
 }
