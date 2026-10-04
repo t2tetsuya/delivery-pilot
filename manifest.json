@@ -1,9 +1,8 @@
 {
-  "name": "Delivery Pilot v2 Web",
+  "name": "Delivery Pilot v2.2 Web",
   "short_name": "Delivery Pilot",
-  "start_url": "./index.html",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#f3f4f6",
-  "theme_color": "#111827",
-  "icons": []
+  "theme_color": "#111827"
 }
