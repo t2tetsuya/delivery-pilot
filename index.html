@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
-<title>Delivery Pilot v2.9 AI Web</title>
+<title>Delivery Pilot v2.10 AI Web</title>
 <link rel="manifest" href="manifest.json">
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f3f4f6}
@@ -25,7 +25,7 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 </style>
 </head>
 <body><main>
-<h1>Delivery Pilot <span class="muted">v2.9 AI</span></h1>
+<h1>Delivery Pilot <span class="muted">v2.10 AI</span></h1>
 <div class="muted">配達員向け スクショOCR・自動入力・AI稼働分析テスト版</div>
 
 <div class="card">
@@ -75,7 +75,7 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 <div class="row"><label>稼働時間<input id="hours" type="number" inputmode="numeric" min="0" max="24" value="0"></label><label>分<input id="minutes" type="number" inputmode="numeric" min="0" max="59" value="0"></label></div>
 <div class="row"><label>配達件数<input id="trips" type="number" inputmode="numeric" min="0" required></label><label>時間帯<select id="slot"><option>朝</option><option>昼</option><option>夕方</option><option>夜</option><option>深夜</option></select></label></div>
 <label>エリア<input id="area" maxlength="40" placeholder="例：関内・横浜駅"></label>
-<div class="actions"><button class="btn primary" type="submit">保存して分析</button><button class="btn" type="button" id="cancelEdit" hidden>編集取消</button></div>
+<div class="actions"><button class="btn primary" type="submit" id="saveBtn">保存して分析</button><button class="btn" type="button" id="cancelEdit" hidden>編集取消</button></div>
 <div id="msg" class="muted" style="margin-top:8px"></div>
 </form>
 
@@ -102,6 +102,7 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 const KEY='deliveryPilotV2Web';
 const yen=n=>'¥'+Math.round(n||0).toLocaleString('ja-JP');
 const today=()=>{let d=new Date(),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`};
+let weeklyScreenshotLocked=false;
 let state=JSON.parse(localStorage.getItem(KEY)||'null')||{goals:{today:15000,week:90000,month:450000,year:5400000,all:0},rows:[
 {id:'seed1',date:'2026-10-03',service:'Uber Eats',baseSales:11377,incentive:0,incentiveType:'なし',expense:0,minutes:344,trips:22,slot:'朝',area:''},
 {id:'seed2',date:'2026-10-04',service:'Uber Eats',baseSales:6380,incentive:0,incentiveType:'なし',expense:0,minutes:202,trips:15,slot:'朝',area:''}
@@ -152,10 +153,21 @@ function render(){
 }
 function drawChart(){let c=$('chart'),ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);let d={};filtered().forEach(r=>d[r.date]=(d[r.date]||0)+totalSales(r));let arr=Object.entries(d).sort().slice(-14);if(!arr.length)return;let max=Math.max(...arr.map(x=>x[1]),1),pad=28,w=(c.width-pad*2)/arr.length;ctx.font='11px sans-serif';arr.forEach(([date,v],i)=>{let h=(v/max)*120,x=pad+i*w+5,y=145-h;ctx.fillStyle='#374151';ctx.fillRect(x,y,Math.max(8,w-10),h);ctx.fillStyle='#6b7280';ctx.fillText(date.slice(5),x,164)});}
 function editRow(id){let r=state.rows.find(x=>x.id===id);if(!r)return;editing=id;$('date').value=r.date;$('service').value=r.service;$('baseSales').value=r.baseSales;$('incentive').value=r.incentive||0;$('incentiveType').value=r.incentiveType||'なし';$('expense').value=r.expense;$('hours').value=Math.floor(r.minutes/60);$('minutes').value=r.minutes%60;$('trips').value=r.trips;$('slot').value=r.slot;$('area').value=r.area;$('cancelEdit').hidden=false;window.scrollTo({top:$('form').offsetTop-10,behavior:'smooth'})}
-function resetForm(){editing=null;$('form').reset();$('date').value=today();$('incentive').value=0;$('incentiveType').value='なし';$('expense').value=0;$('cancelEdit').hidden=true}
+function setWeeklyScreenshotLock(on){
+ weeklyScreenshotLocked=!!on;
+ const ids=['date','baseSales','incentive','incentiveType','hours','minutes','trips'];
+ ids.forEach(id=>{$(id).disabled=weeklyScreenshotLocked});
+ $('saveBtn').disabled=weeklyScreenshotLocked;
+ $('saveBtn').textContent=weeklyScreenshotLocked?'週次スクショは保存できません':'保存して分析';
+}
+function clearOcrDailyFields(){
+ $('date').value='';$('baseSales').value='';$('incentive').value=0;$('incentiveType').value='なし';$('hours').value=0;$('minutes').value=0;$('trips').value='';
+}
+function resetForm(){editing=null;$('form').reset();setWeeklyScreenshotLock(false);$('date').value=today();$('incentive').value=0;$('incentiveType').value='なし';$('expense').value=0;$('cancelEdit').hidden=true}
 $('cancelEdit').onclick=resetForm;
 $('form').onsubmit=e=>{
  e.preventDefault();
+ if(weeklyScreenshotLocked){$('msg').textContent='⚠️ 週次スクショは日別稼働として保存できません。日別スクショを選んでください。';$('msg').style.color='#b45309';return}
  let min=+$('hours').value*60 + +$('minutes').value;
  if(min<=0){$('msg').textContent='稼働時間を入力してください。';return}
  let inc=+$('incentive').value||0;
@@ -204,6 +216,7 @@ $('shotBtn').onclick=()=>{
 $('shot').onchange=async e=>{
  let f=e.target.files[0];if(!f)return;
  let u=URL.createObjectURL(f);$('preview').src=u;$('preview').hidden=false;
+ setWeeklyScreenshotLock(false);
  $('ocrStatus').textContent='OCRを準備しています…';$('ocrText').value='';$('shotPeriodNotice').style.display='none';$('shotPeriodNotice').textContent='';
  try{
    if(!window.Tesseract) throw new Error('OCRライブラリを読み込めませんでした');
@@ -239,16 +252,23 @@ $('shot').onchange=async e=>{
    let txt=fullText+'\n\n--- 統計欄（拡大OCR） ---\n'+statText;
    $('ocrText').value=txt;
    const shotPeriod=updateScreenshotPeriodNotice(txt);
-   const found=applyOcrText(txt,true);
-   if(shotPeriod.type==='week'){ $('date').value=''; }
+   let found=false;
+   if(shotPeriod.type==='week'){
+     clearOcrDailyFields();
+     setWeeklyScreenshotLock(true);
+   } else {
+     setWeeklyScreenshotLock(false);
+     found=applyOcrText(txt,true);
+   }
    const x=extractUberFields(txt);
    const parts=[];
    if(x.sales!=null) parts.push(`売上 ${yen(x.sales)}`);
    if(x.hm) parts.push(`稼働 ${x.hm.h}時間${x.hm.m}分`);
    if(x.trips!=null) parts.push(`配達 ${x.trips}件`);
-   $('ocrStatus').textContent=found
-     ?`OCR完了。${parts.join('／')} を検出しました。保存前に数字を確認してください。`
-     :'OCRは完了しましたが、自動抽出できない項目があります。';
+   $('ocrStatus').textContent=shotPeriod.type==='week'
+     ?`OCR完了。${parts.join('／')} を検出しましたが、週次集計のため日別登録欄には反映していません。`
+     :(found ?`OCR完了。${parts.join('／')} を検出しました。保存前に数字を確認してください。`
+     :'OCRは完了しましたが、自動抽出できない項目があります。');
  }catch(err){
    $('ocrStatus').textContent='OCRエラー: '+(err&&err.message?err.message:String(err));
  }
@@ -319,7 +339,7 @@ function updateScreenshotPeriodNotice(text){
  const p=detectScreenshotPeriod(text), box=$('shotPeriodNotice');
  if(p.type==='week'){
    box.style.display='block';
-   box.textContent=`⚠️ 週の売上スクショ（${p.label}）を検出しました。この金額は1日分として自動保存しません。日別の売上を登録する場合は、Uberで対象日の画面を開いたスクショを選んでください。`;
+   box.textContent=`⚠️ 週の売上スクショ（${p.label}）を検出しました。売上・稼働時間・配達件数は日別登録欄へ反映せず、保存も無効にしました。日別登録する場合はUberで対象日の画面を開いたスクショを選んでください。`;
    return p;
  }
  box.style.display='none'; box.textContent=''; return p;
@@ -339,7 +359,11 @@ function applyOcrText(text,auto=false){
  }
  return count>0;
 }
-$('parseOcr').onclick=()=>applyOcrText($('ocrText').value,false);
+$('parseOcr').onclick=()=>{
+ const p=updateScreenshotPeriodNotice($('ocrText').value);
+ if(p.type==='week'){clearOcrDailyFields();setWeeklyScreenshotLock(true);$('msg').textContent='⚠️ 週次集計なので日別登録欄へは反映しません。';$('msg').style.color='#b45309';return}
+ setWeeklyScreenshotLock(false);applyOcrText($('ocrText').value,false);
+};
 function localAI(){
  let rows=(state.rows||[]).slice().sort((a,b)=>a.date.localeCompare(b.date));
  if(!rows.length)return 'まだ分析できる稼働データがありません。';
@@ -387,7 +411,7 @@ render();$('aiOutput').textContent=localAI();
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      const reg = await navigator.serviceWorker.register('./sw.js?v=2.9', {updateViaCache:'none'});
+      const reg = await navigator.serviceWorker.register('./sw.js?v=2.10', {updateViaCache:'none'});
       await reg.update();
     } catch(e) { console.log('SW update', e); }
   });
