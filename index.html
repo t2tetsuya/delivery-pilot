@@ -402,7 +402,9 @@ function chooseBetterFields(primary, retry){
   // 再OCRで売上だけ改善した場合、件数/時間は元の値を残す。
   const mixed={...p};
   const ps=+p.sales||0, rs=+r.sales||0;
-  if((ps<500 || !ps) && rs>=500) mixed.sales=rs;
+  if((ps<500 || !ps) && rs>=500){
+    for(const key of ['sales','inc','total','net','promo','tip','moneyReview']) mixed[key]=r[key];
+  }
   if((p.inc==null || +p.inc<0) && r.inc!=null) mixed.inc=r.inc;
   if(p.trips==null && r.trips!=null) mixed.trips=r.trips;
   if(!p.hm && r.hm) mixed.hm=r.hm;
@@ -467,7 +469,7 @@ async function ocrOneFile(f, index, total){
 function makeBatchRow(r, idx){
   const x=r.fields||{};
   const ocrDate=extractDateFromOcr(r.text)||'';
-  const date=r.selectedDate||ocrDate||r.fileDate||'';
+  const date=r.selectedDate||(r.period?.type==='week'?'':ocrDate)||'';
   const sales=x.sales==null?'':x.sales;
   const inc=x.inc==null?0:x.inc;
   const trips=x.trips==null?'':x.trips;
@@ -524,7 +526,11 @@ function validateEditableRow(r){
   const total=r.total===''?null:(+r.total||0);
 
   if(r.moneyReview) return r.moneyReview;
-  if(!date) return '日付を入力してください';
+  if(!date) return '日付を入力してください（選択日を確認できませんでした）';
+  const parsed=dateObj(date);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||isNaN(parsed)||isoDate(parsed)!==date) return '日付が正しくありません';
+  if(![r.sales,r.inc,r.trips,r.minutes].every(v=>v!==''&&Number.isFinite(Number(v))&&Number(v)>=0)) return '数字を確認してください';
+  if(!Number.isInteger(trips)||!Number.isInteger(mins)) return '件数・稼働時間は整数で入力してください';
   if(sales<=0) return '配達報酬を確認してください';
   if(trips<=0) return '件数を確認してください';
   if(mins<=0) return '稼働時間を確認してください';
@@ -801,6 +807,7 @@ function extractUberFields(text){
  if(total!=null && promo!=null){
    sales=Math.max(0,total-promo);
    inc=promo;
+   if(promo>total || (net!=null && tip!=null && net+tip+promo!==total)) moneyReview='総額と金額内訳が一致しません。数字を確認してください';
  }else if(total!=null && net!=null && promo==null){
    const knownBase=net+(tip||0);
    if(total===knownBase){
