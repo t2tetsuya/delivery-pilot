@@ -2,7 +2,7 @@
   "name": "Delivery Pilot v2.24 AI",
   "short_name": "Delivery Pilot",
   "id": "./",
-  "start_url": "./index.html?v=2.24&b=202610071600",
+  "start_url": "./index.html?v=2.24&b=202610071625",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f3f4f6",
