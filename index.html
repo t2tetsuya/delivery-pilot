@@ -271,6 +271,32 @@ document.querySelectorAll('#periodTabs button').forEach(b=>b.onclick=()=>{
 $('periodPrev').onclick=()=>shiftPeriod(-1);
 $('periodNext').onclick=()=>shiftPeriod(1);
 $('periodNow').onclick=()=>{periodAnchor=today();render();};
+
+function formRecord(){
+ return {id:editing||(Date.now().toString()+'-'+Math.random().toString(36).slice(2,8)),date:$('date').value,service:$('service').value,baseSales:+$('baseSales').value||0,incentive:+$('incentive').value||0,incentiveType:(+$('incentive').value||0)>0?$('incentiveType').value:'なし',expense:+$('expense').value||0,minutes:(+$('hours').value||0)*60+(+$('minutes').value||0),trips:+$('trips').value||0,slot:$('slot').value,area:$('area').value.trim()};
+}
+function resetForm(){
+ editing=null;$('date').value=today();$('service').value='Uber Eats';$('baseSales').value='';$('incentive').value=0;$('incentiveType').value='なし';$('expense').value=0;$('hours').value=0;$('minutes').value=0;$('trips').value='';$('slot').value='朝';$('area').value='';$('cancelEdit').hidden=true;
+}
+function editRow(id){
+ const r=state.rows.find(x=>x.id===id);if(!r)return;editing=id;$('date').value=r.date||today();$('service').value=r.service||'Uber Eats';$('baseSales').value=+r.baseSales||0;$('incentive').value=+r.incentive||0;$('incentiveType').value=r.incentiveType||'なし';$('expense').value=+r.expense||0;$('hours').value=Math.floor((+r.minutes||0)/60);$('minutes').value=(+r.minutes||0)%60;$('trips').value=+r.trips||0;$('slot').value=r.slot||'朝';$('area').value=r.area||'';$('cancelEdit').hidden=false;$('msg').textContent='編集中です。内容を確認して保存してください。';
+}
+$('cancelEdit').onclick=()=>{resetForm();$('msg').textContent='編集を取り消しました。';};
+$('form').addEventListener('submit',e=>{
+ e.preventDefault();
+ if(screenshotBlocked){$('msg').textContent='スクショの確認が必要なため、まだ保存できません。';return;}
+ const r=formRecord();
+ if(!r.date||r.baseSales<=0||r.trips<=0){$('msg').textContent='日付・配達報酬・配達件数を確認してください。';return;}
+ if(editing){state.rows=state.rows.map(x=>x.id===editing?r:x);}
+ else{
+  const exact=state.rows.find(x=>sameDeliveryRecord(x,r));
+  if(exact){$('msg').textContent='同じ内容の記録が既にあるため、二重登録しませんでした。';return;}
+  const sameDate=state.rows.find(x=>x.date===r.date&&x.service===r.service);
+  if(sameDate){r.id=sameDate.id;state.rows=state.rows.map(x=>x.id===sameDate.id?r:x);}
+  else state.rows.push(r);
+ }
+ save();render();$('aiOutput').textContent=localAI();resetForm();$('msg').textContent='保存しました。';
+});
 function clearDailyOcrFields(){
   $('date').value=''; $('baseSales').value=''; $('incentive').value=0; $('incentiveType').value='なし';
   $('hours').value=0; $('minutes').value=0; $('trips').value='';
