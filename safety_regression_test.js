@@ -16,5 +16,9 @@ assert.match(html,/rows:\[\]/);
 assert.match(html,/typeof r.date==='string'/);
 assert.match(html,/const next=JSON.parse\(JSON.stringify\(incoming\)\)/);
 assert.match(html,/ダウンロードが完了したことを確認しましたか/);
+assert.match(html,/Number\.isFinite\(\+\(r\.baseSales\?\?r\.sales\)\)/);
+assert.match(html,/r\.minutes>=0|\+r\.minutes>=0/);
+assert.match(html,/escapeHtml\(r\.file\)/);
+assert.match(html,/escapeHtml\(r\.id\)/);
 console.log('PASS: version, cache and backup import source guards');
 
