@@ -114,6 +114,7 @@ const BUILD='1791101231';
 let screenshotBlocked=false;
 let selectedScreenshotDate='';
 const yen=n=>'¥'+Math.round(n||0).toLocaleString('ja-JP');
+const escapeHtml=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const today=()=>{let d=new Date(),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`};
 let state=JSON.parse(localStorage.getItem(KEY)||'null')||{goals:{today:15000,week:90000,month:450000,year:5400000,all:0},rows:[]};
 // v2 -> v2.1 migration. Existing sales are kept as delivery earnings, incentive starts at 0.
@@ -203,12 +204,12 @@ function render(){
  $('goalExtra').hidden=!show;
  if(show){$('daysRemaining').textContent=days+'日';$('perDayNeeded').textContent=yen(days?rem/days:0)}
  let byInc={};rows.forEach(r=>{let k=(+r.incentive||0)>0?(r.incentiveType||'その他'):'なし';if(k!=='なし')byInc[k]=(byInc[k]||0)+(+r.incentive||0)});
- $('incentiveAnalysis').innerHTML=Object.keys(byInc).length?Object.entries(byInc).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="item">${k}<b class="right">${yen(v)}</b></div>`).join(''):'<div class="muted">この期間のインセンティブはありません</div>';
+ $('incentiveAnalysis').innerHTML=Object.keys(byInc).length?Object.entries(byInc).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="item">${escapeHtml(k)}<b class="right">${yen(v)}</b></div>`).join(''):'<div class="muted">この期間のインセンティブはありません</div>';
  let bySvc={};rows.forEach(r=>bySvc[r.service]=(bySvc[r.service]||0)+totalSales(r));
- $('services').innerHTML=Object.entries(bySvc).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="item">${k}<b class="right">${yen(v)}</b></div>`).join('')||'<div class="muted">データなし</div>';
+ $('services').innerHTML=Object.entries(bySvc).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="item">${escapeHtml(k)}<b class="right">${yen(v)}</b></div>`).join('')||'<div class="muted">データなし</div>';
  let groups={};rows.forEach(r=>{let k=(r.slot||'未設定')+' / '+(r.area||'エリア未設定');let g=groups[k]||{sales:0,min:0,trips:0};g.sales+=totalSales(r);g.min+=+r.minutes||0;g.trips+=+r.trips||0;groups[k]=g});
- $('analysis').innerHTML=Object.entries(groups).map(([k,g])=>`<div class="item"><b>${k}</b><div class="muted">売上 ${yen(g.sales)}・時給 ${yen(g.min?g.sales/(g.min/60):0)}・${g.trips}件</div></div>`).join('')||'<div class="muted">データなし</div>';
- $('history').innerHTML=rows.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(r=>`<div class="item"><b>${r.date} ${r.service}</b><span class="right">${yen(totalSales(r))}</span><div class="muted">${Math.floor(r.minutes/60)}時間${r.minutes%60}分・${r.trips}件・配達報酬 ${yen(r.baseSales)}・インセンティブ ${yen(r.incentive)}${(+r.incentive||0)>0?'（'+(r.incentiveType||'その他')+'）':''}・経費 ${yen(r.expense)}・${r.slot}${r.area?'・'+r.area:''}</div><div class="actions" style="margin-top:7px"><button class="btn edit" data-id="${r.id}" type="button">編集</button><button class="btn del" data-id="${r.id}" type="button">削除</button></div></div>`).join('')||'<div class="muted">この期間の履歴はありません</div>';
+ $('analysis').innerHTML=Object.entries(groups).map(([k,g])=>`<div class="item"><b>${escapeHtml(k)}</b><div class="muted">売上 ${yen(g.sales)}・時給 ${yen(g.min?g.sales/(g.min/60):0)}・${g.trips}件</div></div>`).join('')||'<div class="muted">データなし</div>';
+ $('history').innerHTML=rows.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(r=>`<div class="item"><b>${escapeHtml(r.date)} ${escapeHtml(r.service)}</b><span class="right">${yen(totalSales(r))}</span><div class="muted">${Math.floor(r.minutes/60)}時間${r.minutes%60}分・${r.trips}件・配達報酬 ${yen(r.baseSales)}・インセンティブ ${yen(r.incentive)}${(+r.incentive||0)>0?'（'+(r.incentiveType||'その他')+'）':''}・経費 ${yen(r.expense)}・${escapeHtml(r.slot)}${r.area?'・'+escapeHtml(r.area):''}</div><div class="actions" style="margin-top:7px"><button class="btn edit" data-id="${r.id}" type="button">編集</button><button class="btn del" data-id="${r.id}" type="button">削除</button></div></div>`).join('')||'<div class="muted">この期間の履歴はありません</div>';
  drawChart();document.querySelectorAll('.edit').forEach(b=>b.onclick=()=>editRow(b.dataset.id));document.querySelectorAll('.del').forEach(b=>b.onclick=()=>{if(confirm('この記録を削除しますか？')){state.rows=state.rows.filter(r=>r.id!==b.dataset.id);save();render()}});
 }
 function drawChart(){
@@ -691,7 +692,7 @@ $('shot').onchange=async e=>{
   const files=Array.from(e.target.files||[]);
   if(!files.length)return;
   $('batchInfo').textContent=`${files.length}枚を選択しました。順番に読み取ります。枚数が多い場合は数分かかることがあります。画面を閉じずにお待ちください。`;
-  $('batchPreview').innerHTML=files.slice(0,12).map((f,i)=>`<span class="badge">${i+1}. ${f.name}</span>`).join('')+(files.length>12?` <span class="badge">…ほか${files.length-12}枚</span>`:'');
+  $('batchPreview').innerHTML=files.slice(0,12).map((f,i)=>`<span class="badge">${i+1}. ${escapeHtml(f.name)}</span>`).join('')+(files.length>12?` <span class="badge">…ほか${files.length-12}枚</span>`:'');
   $('batchResults').innerHTML='';
   const rows=[];
   for(let i=0;i<files.length;i++){
