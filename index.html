@@ -932,7 +932,7 @@ function validImportedBackup(o){
       Number.isFinite(+(r.baseSales??r.sales)) && +(r.baseSales??r.sales)>=0 &&
       Number.isFinite(+(r.incentive??0)) && +(r.incentive??0)>=0 &&
       (r.trips==null || (Number.isFinite(+r.trips) && +r.trips>=0)) &&
-      (r.minutes==null || (Number.isFinite(+r.minutes) && +r.minutes>=0))));
+      (r.minutes==null || (Number.isFinite(+r.minutes) && +r.minutes>=0)));
 }
 $('importFile').onchange=async e=>{
   const file=e.target.files?.[0];
