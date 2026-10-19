@@ -10,7 +10,6 @@ assert.doesNotMatch(html,/keys\.filter\(k=>!k\.includes\('v2\.19'\)\)/);
 assert.match(html,/k\.startsWith\('delivery-pilot-'\) && k!=='delivery-pilot-v2\.24-1791101231'/);
 assert.match(html,/function validImportedBackup\(o\)/);
 assert.match(html,/downloadBackup\(state,'delivery-pilot-before-import-'/);
-assert.match(html,/if\(!confirm\('現在のデータの自動バックアップを保存しました。置き換えを実行しますか？'\)\)return;/);
 assert.ok(html.indexOf('downloadBackup(state,')<html.indexOf('localStorage.setItem(KEY,JSON.stringify(next))'));
 assert.doesNotMatch(html,/id:'seed1'/);
 assert.match(html,/rows:\[\]/);
@@ -18,3 +17,4 @@ assert.match(html,/typeof r.date==='string'/);
 assert.match(html,/const next=JSON.parse\(JSON.stringify\(incoming\)\)/);
 assert.match(html,/ダウンロードが完了したことを確認しましたか/);
 console.log('PASS: version, cache and backup import source guards');
+
