@@ -109,8 +109,8 @@ canvas{width:100%;height:180px;border-bottom:1px solid #ddd}
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
 const KEY='deliveryPilotV2Web';
-const VERSION='2.19';
-const BUILD='1791097656';
+const VERSION='2.24';
+const BUILD='1791101231';
 let screenshotBlocked=false;
 let selectedScreenshotDate='';
 const yen=n=>'¥'+Math.round(n||0).toLocaleString('ja-JP');
@@ -918,7 +918,45 @@ $('refreshAppBtn').onclick=async()=>{
 };
 
 $('exportBtn').onclick=()=>{let blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='delivery-pilot-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
-$('importFile').onchange=async e=>{try{let o=JSON.parse(await e.target.files[0].text());if(!o||!Array.isArray(o.rows))throw 0;state=o;if(!state.goals)state.goals={today:+state.goal||15000,week:90000,month:450000,year:5400000,all:0};for(const r of state.rows){if(r.baseSales==null){r.baseSales=+r.sales||0;r.incentive=+r.incentive||0;r.incentiveType=r.incentiveType||'なし'}}delete state.goal;save();render();alert('バックアップを読み込みました')}catch{alert('バックアップファイルを読み込めませんでした')}};
+function downloadBackup(data,filename){
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download=filename;a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function validImportedBackup(o){
+  return !!o && typeof o==='object' && !Array.isArray(o) &&
+    Array.isArray(o.rows) && o.rows.length<=100000 &&
+    o.rows.every(r=>r && typeof r==='object' && !Array.isArray(r) &&
+      typeof r.date==='string' && /^\\d{4}-\\d{2}-\\d{2}$/.test(r.date) &&
+      typeof r.service==='string' &&
+      Number.isFinite(+(r.baseSales??r.sales??0)) &&
+      Number.isFinite(+(r.incentive??0)));
+}
+$('importFile').onchange=async e=>{
+  const file=e.target.files?.[0];
+  if(!file)return;
+  try{
+    const incoming=JSON.parse(await file.text());
+    if(!validImportedBackup(incoming))throw Error('invalid backup');
+    const oldCount=state.rows.length,newCount=incoming.rows.length;
+    if(!confirm(`現在の登録${oldCount}件を、バックアップの${newCount}件に置き換えます。続行しますか？`))return;
+    // Preserve the existing records before destructive replacement.
+    downloadBackup(state,'delivery-pilot-before-import-'+today()+'.json');
+    if(!confirm('現在のデータの自動バックアップを保存しました。置き換えを実行しますか？'))return;
+    const next=structuredClone(incoming);
+    if(!next.goals)next.goals={today:+next.goal||15000,week:90000,month:450000,year:5400000,all:0};
+    for(const r of next.rows){
+      if(r.baseSales==null){r.baseSales=+r.sales||0;r.incentive=+r.incentive||0;r.incentiveType=r.incentiveType||'なし'}
+    }
+    delete next.goal;
+    localStorage.setItem(KEY,JSON.stringify(next));
+    state=next;
+    render();
+    alert('バックアップを読み込みました');
+  }catch(err){alert('バックアップファイルを読み込めませんでした。元のデータは変更していません。')}
+  finally{e.target.value='';}
+};
 render();$('aiOutput').textContent=localAI();
 
 const APP_VERSION='v2.24';
@@ -947,7 +985,7 @@ window.addEventListener('load', async()=>{
   if('caches' in window){
     try{
       const keys=await caches.keys();
-      await Promise.all(keys.filter(k=>!k.includes('v2.19')).map(k=>caches.delete(k)));
+      await Promise.all(keys.filter(k=>k.startsWith('delivery-pilot-') && k!=='delivery-pilot-v2.24-1791101231').map(k=>caches.delete(k)));
     }catch(e){}
   }
   await forceFreshServiceWorker();
