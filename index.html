@@ -115,10 +115,7 @@ let screenshotBlocked=false;
 let selectedScreenshotDate='';
 const yen=n=>'¥'+Math.round(n||0).toLocaleString('ja-JP');
 const today=()=>{let d=new Date(),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`};
-let state=JSON.parse(localStorage.getItem(KEY)||'null')||{goals:{today:15000,week:90000,month:450000,year:5400000,all:0},rows:[
-{id:'seed1',date:'2026-10-03',service:'Uber Eats',baseSales:11377,incentive:0,incentiveType:'なし',expense:0,minutes:344,trips:22,slot:'朝',area:''},
-{id:'seed2',date:'2026-10-04',service:'Uber Eats',baseSales:6380,incentive:0,incentiveType:'なし',expense:0,minutes:202,trips:15,slot:'朝',area:''}
-]};
+let state=JSON.parse(localStorage.getItem(KEY)||'null')||{goals:{today:15000,week:90000,month:450000,year:5400000,all:0},rows:[]};
 // v2 -> v2.1 migration. Existing sales are kept as delivery earnings, incentive starts at 0.
 if(!state.goals) state.goals={today:+state.goal||15000,week:90000,month:450000,year:5400000,all:0};
 for(const r of state.rows||[]){
@@ -928,7 +925,7 @@ function validImportedBackup(o){
   return !!o && typeof o==='object' && !Array.isArray(o) &&
     Array.isArray(o.rows) && o.rows.length<=100000 &&
     o.rows.every(r=>r && typeof r==='object' && !Array.isArray(r) &&
-      typeof r.date==='string' && /^\\d{4}-\\d{2}-\\d{2}$/.test(r.date) &&
+      typeof r.date==='string' && /^\d{4}-\d{2}-\d{2}$/.test(r.date) &&
       typeof r.service==='string' &&
       Number.isFinite(+(r.baseSales??r.sales??0)) &&
       Number.isFinite(+(r.incentive??0)));
@@ -943,8 +940,8 @@ $('importFile').onchange=async e=>{
     if(!confirm(`現在の登録${oldCount}件を、バックアップの${newCount}件に置き換えます。続行しますか？`))return;
     // Preserve the existing records before destructive replacement.
     downloadBackup(state,'delivery-pilot-before-import-'+today()+'.json');
-    if(!confirm('現在のデータの自動バックアップを保存しました。置き換えを実行しますか？'))return;
-    const next=structuredClone(incoming);
+    if(!confirm('バックアップのダウンロードが完了したことを確認しましたか？\n未確認の場合はキャンセルしてください。'))return;
+    const next=JSON.parse(JSON.stringify(incoming));
     if(!next.goals)next.goals={today:+next.goal||15000,week:90000,month:450000,year:5400000,all:0};
     for(const r of next.rows){
       if(r.baseSales==null){r.baseSales=+r.sales||0;r.incentive=+r.incentive||0;r.incentiveType=r.incentiveType||'なし'}
